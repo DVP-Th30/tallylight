@@ -14,8 +14,9 @@ Le lien clé en main entre n'importe quel agent de code et n'importe quel écran
 ## En code aujourd'hui
 - `crates/tallylight-core` — modèle partagé : `State` (vocabulaire A2A), `Session`, `Snapshot`, et `claude::change` qui traduit un hook de Claude Code en changement d'état (fonction pure, testée).
 - `crates/tallylight` — le binaire :
-  - `tallylight daemon [--port N]` : reçoit les hooks sur `http://127.0.0.1:47700/hooks/claude`, tient les sessions (`store.rs`), sert `GET /sessions`, et pousse un instantané JSON par ligne à chaque écran connecté par iroh (ALPN `tallylight/state/0`). Identité réseau et ticket dans `~/.local/share/tallylight/` (`key`, `ticket`) : le ticket ne change pas d'un lancement à l'autre.
-  - `tallylight watch [ticket]` : écran terminal ; sans ticket, lit celui du démon local. Les sessions qui attendent l'utilisateur passent en tête.
+  - `tallylight daemon [--port N]` : reçoit les hooks sur `http://127.0.0.1:47700/hooks/claude`, tient les sessions (`store.rs`), sert `GET /sessions`, et pousse un instantané JSON par ligne à chaque écran appairé connecté par iroh (ALPN `tallylight/state/1`). Données dans `~/.local/share/tallylight/` : `key` (identité, donc ticket stable), `ticket`, `devices.json` (écrans autorisés).
+  - `tallylight watch [appairage]` : écran terminal ; sans argument, suit cette machine (le démon local lui fournit l'appairage). Les sessions qui attendent l'utilisateur passent en tête. L'écran garde sa propre identité (`screen-key`) et la liste des machines appairées (`machines`).
+  - `tallylight pair` : affiche un QR et une chaîne d'appairage à usage unique ; `tallylight devices` et `tallylight unpair <identité>` gèrent les écrans autorisés (`devices.rs`, décision D8). Ces commandes parlent au démon par son port local (`local.rs`).
   - `tallylight hooks [--port N]` : affiche le bloc `hooks` (type `http`, délai 2 s) à fusionner dans les réglages de Claude Code. Rien n'est installé automatiquement pour l'instant.
 - `crates/tallylight-proto` — prototype réseau jetable du premier jalon.
 
@@ -25,9 +26,12 @@ Vérifié le 2026-11-17 avec une vraie session (`claude -p --settings <fichier d
 
 Limites connues :
 - Une interruption par l'utilisateur (Échap) ne déclenche aucun hook : la session reste « au travail ».
-- Quiconque possède le ticket peut lire l'état : la liste des appareils autorisés reste à faire.
 - Les sessions ouvertes avant le démarrage du démon n'apparaissent qu'à leur prochain événement ; rien n'est conservé à l'arrêt du démon.
 - Démon arrêté : Claude Code affiche une erreur de hook non bloquante dans sa transcription.
+
+Protocole écran → cœur : l'écran ouvre un flux, envoie une ligne `{"name": …, "code": …}`, reçoit `{"ok": true|false}`, puis un instantané par ligne.
+
+Appairage vérifié le 2026-11-17 (démon de test isolé) : écran local admis automatiquement, écran inconnu refusé avec le ticket seul, admis avec la chaîne de `tallylight pair`, reconnu ensuite sans code, code refusé à un second écran, écran retiré refusé, liste conservée après redémarrage.
 
 ## Flux
 1. L'agent déclenche un hook (Claude Code : hook de type `http`, POST local vers le cœur).

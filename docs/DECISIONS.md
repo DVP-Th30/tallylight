@@ -31,6 +31,12 @@ But : visibilité, apprentissage, et un revenu éventuel à terme (service de r�
 ## D7 — Dépôt privé jusqu'à la première démo (2026-11-17)
 Rendu public le jour où une démo fonctionne. Nom `tallylight` : le voyant des caméras de télévision qui indique laquelle est à l'antenne ; libre sur crates.io à cette date.
 
+## D8 — Appairage : liste d'appareils autorisés et code à usage unique (2026-11-17)
+Chaque écran a une identité réseau (clé publique iroh), prouvée par la connexion chiffrée elle-même. Le cœur ne sert que les identités de sa liste (`devices.json`). Pour y entrer, un écran présente une fois un code tiré au hasard par `tallylight pair` (10 octets, valable 5 minutes, un seul usage), transmis avec le ticket dans un QR ou une chaîne « ticket#code ». Ensuite l'écran est reconnu sans code ; `tallylight unpair` le retire.
+Le ticket seul ne donne donc aucun droit : il dit seulement où joindre la machine.
+Écarté : le ticket comme secret partagé (quiconque le voit lit l'état, et on ne peut pas retirer un seul appareil) ; un mot de passe commun (même défaut) ; une validation manuelle sur la machine à chaque appairage (impossible sur un serveur sans écran).
+Limites assumées : le port local du démon fait confiance à tout processus de la machine (un autre utilisateur de la même machine pourrait demander un code) ; à durcir par un socket réservé au propriétaire si des machines partagées sont visées.
+
 ## Questions ouvertes
 - Envoyer un message à une session Claude Code déjà ouverte (conditionne la voix) : Remote Control sans API, channels en aperçu, socket de boîte de réception au format non documenté. À valider par un essai.
 - Comportement de Claude Code quand un hook `PermissionRequest` dépasse son délai.

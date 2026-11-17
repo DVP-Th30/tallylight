@@ -1,32 +1,55 @@
 //! Premier écran : l'état des sessions dans le terminal, redessiné à chaque changement.
 
-use std::{
-    str::FromStr,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::str::FromStr;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use iroh::{Endpoint, endpoint::presets};
 use iroh_tickets::endpoint::EndpointTicket;
 use tallylight_core::{Session, Snapshot, State};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
-use crate::{ALPN, data_dir};
+use crate::{ALPN, Hello, Welcome, data_dir, identity, local, now, write_private};
 
-pub async fn run(ticket: Option<&str>) -> Result<()> {
-    let ticket = match ticket {
-        Some(ticket) => ticket.to_string(),
-        None => std::fs::read_to_string(data_dir()?.join("ticket"))
-            .context("aucun démon local : lancer `tallylight daemon`, ou donner un ticket")?,
+/// `pairing` : chaîne donnée par `tallylight pair` (« ticket#code »), ou ticket seul d'une machine
+/// déjà appairée. Sans argument, on suit cette machine : le démon local fournit lui-même l'appairage.
+pub async fn run(pairing: Option<&str>) -> Result<()> {
+    let pairing = match pairing {
+        Some(pairing) => pairing.trim().to_string(),
+        None => local::pairing().await?,
     };
-    let ticket = EndpointTicket::from_str(ticket.trim()).context("ticket illisible")?;
+    let (ticket, code) = match pairing.split_once('#') {
+        Some((ticket, code)) => (ticket, Some(code.to_string())),
+        None => (pairing.as_str(), None),
+    };
+    let address = EndpointTicket::from_str(ticket).context("ticket illisible")?;
 
-    let endpoint = Endpoint::bind(presets::N0).await?;
-    let connection = endpoint
-        .connect(ticket.endpoint_addr().clone(), ALPN)
+    // L'écran garde son identité : une fois appairé, il est reconnu sans code
+    let endpoint = Endpoint::builder(presets::N0)
+        .secret_key(identity("screen-key")?)
+        .bind()
         .await?;
-    let recv = connection.accept_uni().await?;
+    let connection = endpoint
+        .connect(address.endpoint_addr().clone(), ALPN)
+        .await?;
+    let (mut send, recv) = connection.open_bi().await?;
+    let hello = Hello {
+        name: format!("terminal@{}", machine_name()),
+        code,
+    };
+    let mut line = serde_json::to_vec(&hello)?;
+    line.push(b'\n');
+    send.write_all(&line).await?;
+
     let mut lines = BufReader::new(recv).lines();
+    let welcome = lines.next_line().await?.context("connexion fermée")?;
+    let welcome: Welcome = serde_json::from_str(&welcome).context("réponse illisible")?;
+    if !welcome.ok {
+        bail!(
+            "cet écran n'est pas appairé avec la machine : lancer `tallylight pair` sur elle et utiliser la chaîne affichée"
+        );
+    }
+    remember(ticket)?;
+
     // Hors d'un terminal (sortie redirigée), on n'efface pas l'écran : un bloc par instantané
     let redraw = std::io::IsTerminal::is_terminal(&std::io::stdout());
     while let Some(line) = lines.next_line().await? {
@@ -86,11 +109,22 @@ fn ago(seconds: u64) -> String {
     }
 }
 
-fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_secs())
-        .unwrap_or(0)
+/// Retient le ticket d'une machine appairée (un par ligne), pour la retrouver plus tard.
+fn remember(ticket: &str) -> Result<()> {
+    let path = data_dir()?.join("machines");
+    let known = std::fs::read_to_string(&path).unwrap_or_default();
+    if known.lines().any(|line| line == ticket) {
+        return Ok(());
+    }
+    write_private(&path, format!("{known}{ticket}\n").as_bytes())
+}
+
+fn machine_name() -> String {
+    std::fs::read_to_string("/etc/hostname")
+        .ok()
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "machine".to_string())
 }
 
 #[cfg(test)]

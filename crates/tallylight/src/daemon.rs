@@ -1,68 +1,94 @@
-//! Le cœur : reçoit les hooks en HTTP local, tient l'état, le pousse aux écrans par iroh.
+//! Le cœur : reçoit les hooks en HTTP local, tient l'état, le pousse aux écrans autorisés par iroh.
 
-use std::{net::Ipv4Addr, path::Path, sync::Arc};
+use std::{
+    net::Ipv4Addr,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Path, State},
     routing::{get, post},
 };
 use iroh::{
-    Endpoint, SecretKey,
+    Endpoint,
     endpoint::{Connection, presets},
 };
 use iroh_tickets::endpoint::EndpointTicket;
 use serde_json::{Value, json};
 use tallylight_core::{Snapshot, claude::HookEvent};
-use tokio::net::TcpListener;
+use tokio::{
+    io::{AsyncBufReadExt, BufReader},
+    net::TcpListener,
+};
 
-use crate::{ALPN, data_dir, store::Store};
+use crate::{
+    ALPN, Hello, Welcome, data_dir,
+    devices::{Admission, Device, Devices},
+    identity, now,
+    store::Store,
+    write_private,
+};
+
+struct App {
+    store: Store,
+    devices: Mutex<Devices>,
+    ticket: String,
+}
 
 pub async fn run(port: u16) -> Result<()> {
-    let store = Arc::new(Store::new(machine_name()));
-
     let endpoint = Endpoint::builder(presets::N0)
-        .secret_key(identity()?)
+        .secret_key(identity("key")?)
         .alpns(vec![ALPN.to_vec()])
         .bind()
         .await?;
     endpoint.online().await;
     let ticket = EndpointTicket::new(endpoint.addr()).to_string();
-    // Le ticket donne accès à l'état : comme la clé, il n'est lisible que par son propriétaire
+    // Le ticket dit où joindre la machine ; il ne donne aucun droit sans appairage
     write_private(&data_dir()?.join("ticket"), ticket.as_bytes())?;
-    println!("ticket d'appairage : {ticket}");
 
-    // Les hooks n'arrivent que de la machine elle-même
+    let app = Arc::new(App {
+        store: Store::new(machine_name()),
+        devices: Mutex::new(Devices::load(data_dir()?.join("devices.json"))),
+        ticket,
+    });
+
+    // Les hooks et les commandes locales n'arrivent que de la machine elle-même
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port))
         .await
         .with_context(|| format!("port {port} déjà pris ?"))?;
     println!("hooks attendus sur http://127.0.0.1:{port}/hooks/claude");
-    let app = Router::new()
+    let router = Router::new()
         .route("/hooks/claude", post(claude_hook))
         .route("/sessions", get(sessions))
-        .with_state(store.clone());
+        .route("/pair", post(pair))
+        .route("/devices", get(devices))
+        .route("/devices/{prefix}/remove", post(remove_device))
+        .with_state(app.clone());
 
     let screens = {
         let endpoint = endpoint.clone();
         async move {
             while let Some(incoming) = endpoint.accept().await {
-                let store = store.clone();
+                let app = app.clone();
                 tokio::spawn(async move {
                     let Ok(connection) = incoming.await else {
                         return;
                     };
                     let peer = connection.remote_id().fmt_short();
-                    println!("écran connecté : {peer}");
-                    let _ = serve_screen(connection, &store).await;
-                    println!("écran déconnecté : {peer}");
+                    match serve_screen(&connection, &app).await {
+                        Ok(()) => println!("écran déconnecté : {peer}"),
+                        Err(error) => println!("écran {peer} : {error:#}"),
+                    }
                 });
             }
         }
     };
 
     tokio::select! {
-        result = axum::serve(listener, app) => result?,
+        result = axum::serve(listener, router) => result?,
         _ = screens => {}
         _ = tokio::signal::ctrl_c() => {}
     }
@@ -71,7 +97,7 @@ pub async fn run(port: u16) -> Result<()> {
 }
 
 /// Réponse vide : le hook ne décide de rien, il informe seulement.
-async fn claude_hook(State(store): State<Arc<Store>>, Json(body): Json<Value>) -> Json<Value> {
+async fn claude_hook(State(app): State<Arc<App>>, Json(body): Json<Value>) -> Json<Value> {
     if let Some(path) = std::env::var_os("TALLYLIGHT_LOG_EVENTS") {
         // Journal brut des événements, pour étudier ce que l'agent envoie réellement
         use std::io::Write;
@@ -84,19 +110,70 @@ async fn claude_hook(State(store): State<Arc<Store>>, Json(body): Json<Value>) -
         }
     }
     if let Ok(event) = serde_json::from_value::<HookEvent>(body) {
-        store.apply_claude(&event);
+        app.store.apply_claude(&event);
     }
     Json(json!({}))
 }
 
-async fn sessions(State(store): State<Arc<Store>>) -> Json<Snapshot> {
-    Json(store.snapshot())
+async fn sessions(State(app): State<Arc<App>>) -> Json<Snapshot> {
+    Json(app.store.snapshot())
 }
 
-/// Envoie l'instantané courant, puis un nouveau à chaque changement : une ligne JSON par instantané.
-async fn serve_screen(connection: Connection, store: &Store) -> Result<()> {
-    let mut updates = store.subscribe();
-    let mut send = connection.open_uni().await?;
+/// Chaîne d'appairage à montrer à un écran : le ticket et un code à usage unique.
+async fn pair(State(app): State<Arc<App>>) -> Json<Value> {
+    match app.devices.lock().unwrap().new_code() {
+        Ok(code) => Json(json!({ "pairing": format!("{}#{code}", app.ticket) })),
+        Err(error) => Json(json!({ "error": error.to_string() })),
+    }
+}
+
+async fn devices(State(app): State<Arc<App>>) -> Json<Vec<Device>> {
+    Json(app.devices.lock().unwrap().list().to_vec())
+}
+
+async fn remove_device(State(app): State<Arc<App>>, Path(prefix): Path<String>) -> Json<Value> {
+    match app.devices.lock().unwrap().remove(&prefix) {
+        Ok(removed) => Json(json!({ "removed": removed })),
+        Err(error) => Json(json!({ "error": error.to_string() })),
+    }
+}
+
+/// Vérifie que l'écran est autorisé, puis lui envoie l'instantané courant et un nouveau à chaque
+/// changement : une ligne JSON par instantané.
+async fn serve_screen(connection: &Connection, app: &App) -> Result<()> {
+    // L'identité de l'écran est prouvée par la connexion chiffrée, pas par ce qu'il déclare
+    let id = connection.remote_id().to_string();
+    let (mut send, recv) = connection.accept_bi().await?;
+    let mut lines = BufReader::new(recv).lines();
+    let hello = tokio::time::timeout(Duration::from_secs(10), lines.next_line())
+        .await
+        .context("l'écran ne s'est pas présenté")??
+        .context("l'écran ne s'est pas présenté")?;
+    let hello: Hello = serde_json::from_str(&hello).context("présentation illisible")?;
+
+    let admission =
+        app.devices
+            .lock()
+            .unwrap()
+            .admit(&id, &hello.name, hello.code.as_deref(), now())?;
+    let welcome = Welcome {
+        ok: admission != Admission::Refused,
+    };
+    let mut line = serde_json::to_vec(&welcome)?;
+    line.push(b'\n');
+    send.write_all(&line).await?;
+    match admission {
+        Admission::Refused => {
+            send.finish()?;
+            // Laisse le refus arriver avant de fermer
+            let _ = tokio::time::timeout(Duration::from_secs(2), connection.closed()).await;
+            bail!("refusé (« {} », non appairé)", hello.name);
+        }
+        Admission::Paired => println!("écran appairé : {} ({})", hello.name, &id[..10]),
+        Admission::Known => println!("écran connecté : {} ({})", hello.name, &id[..10]),
+    }
+
+    let mut updates = app.store.subscribe();
     loop {
         let mut line = serde_json::to_vec(&*updates.borrow_and_update())?;
         line.push(b'\n');
@@ -106,29 +183,6 @@ async fn serve_screen(connection: Connection, store: &Store) -> Result<()> {
             _ = connection.closed() => return Ok(()),
         }
     }
-}
-
-/// Identité réseau de la machine, créée au premier lancement : le ticket reste le même d'un lancement à l'autre.
-fn identity() -> Result<SecretKey> {
-    let path = data_dir()?.join("key");
-    if let Ok(bytes) = std::fs::read(&path) {
-        let bytes: [u8; 32] = bytes.try_into().ok().context("clé d'identité illisible")?;
-        return Ok(SecretKey::from_bytes(&bytes));
-    }
-    let key = SecretKey::generate();
-    write_private(&path, &key.to_bytes())?;
-    Ok(key)
-}
-
-/// Écrit un fichier lisible par son seul propriétaire.
-fn write_private(path: &Path, content: &[u8]) -> Result<()> {
-    std::fs::write(path, content)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-    }
-    Ok(())
 }
 
 fn machine_name() -> String {
