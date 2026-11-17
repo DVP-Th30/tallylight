@@ -1,6 +1,6 @@
 //! Le cœur : reçoit les hooks en HTTP local, tient l'état, le pousse aux écrans par iroh.
 
-use std::{net::Ipv4Addr, sync::Arc};
+use std::{net::Ipv4Addr, path::Path, sync::Arc};
 
 use anyhow::{Context, Result};
 use axum::{
@@ -29,7 +29,8 @@ pub async fn run(port: u16) -> Result<()> {
         .await?;
     endpoint.online().await;
     let ticket = EndpointTicket::new(endpoint.addr()).to_string();
-    std::fs::write(data_dir()?.join("ticket"), &ticket)?;
+    // Le ticket donne accès à l'état : comme la clé, il n'est lisible que par son propriétaire
+    write_private(&data_dir()?.join("ticket"), ticket.as_bytes())?;
     println!("ticket d'appairage : {ticket}");
 
     // Les hooks n'arrivent que de la machine elle-même
@@ -115,13 +116,19 @@ fn identity() -> Result<SecretKey> {
         return Ok(SecretKey::from_bytes(&bytes));
     }
     let key = SecretKey::generate();
-    std::fs::write(&path, key.to_bytes())?;
+    write_private(&path, &key.to_bytes())?;
+    Ok(key)
+}
+
+/// Écrit un fichier lisible par son seul propriétaire.
+fn write_private(path: &Path, content: &[u8]) -> Result<()> {
+    std::fs::write(path, content)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     }
-    Ok(key)
+    Ok(())
 }
 
 fn machine_name() -> String {

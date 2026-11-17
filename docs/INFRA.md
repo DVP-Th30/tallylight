@@ -26,6 +26,14 @@ adb push target/aarch64-linux-android/release/tallylight-proto /data/local/tmp/
 adb shell /data/local/tmp/tallylight-proto connect <ticket>
 ```
 
+## Installation sur serveurdvp (2026-11-17)
+- Binaire : `~/.local/bin/tallylight` (copie de `target/release/tallylight`).
+- Service utilisateur systemd `tallylight` (`~/.config/systemd/user/tallylight.service`, plafond mémoire 200 Mo, environ 7 Mo utilisés) : `systemctl --user status tallylight`, journal par `journalctl --user -u tallylight`.
+- Hooks : ajoutés à `~/.claude/settings.json` à côté de ceux de Vibe Island, et dans le modèle `claude-config/settings/server.json`. Sauvegarde de l'ancien fichier dans `~/.claude/backups/`. Claude Code les prend en compte sans redémarrer les sessions. Le Mac n'est pas concerné.
+- Données : `~/.local/share/tallylight/` (`key`, `ticket`, lisibles par le seul propriétaire).
+- Mettre à jour : recompiler, recopier le binaire, `systemctl --user restart tallylight`.
+- Désinstaller : `systemctl --user disable --now tallylight`, puis retirer des réglages les hooks dont l'URL contient `47700/hooks/claude`.
+
 ## Appareils de test
 - serveurdvp (Linux) et le Mac : cœur.
 - Galaxy A36 (Android) : écran de démo, via le launcher Encre (`~/projets/DVPLauncher`, accès adb décrit dans son `docs/INFRA.md`).
