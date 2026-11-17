@@ -1,6 +1,6 @@
 # Architecture
 
-État au 2026-11-17 : cadrage. Seul le vocabulaire d'états existe en code (`crates/tallylight-core`).
+État au 2026-11-17 : cadrage et prototype réseau. En code : le vocabulaire d'états (`crates/tallylight-core`) et un prototype jetable (`crates/tallylight-proto`).
 
 ## Promesse
 Le lien clé en main entre n'importe quel agent de code et n'importe quel écran : un binaire, un format d'état standard, un réseau privé intégré, des clients pour chaque plateforme.
@@ -26,3 +26,15 @@ Deux entrées produisent le même format : les hooks (aucune coopération de l'a
 
 ## Premier jalon
 Prouver le point le plus risqué : deux machines (serveurdvp et un téléphone Android) s'appairent par code ou QR et s'échangent un état via iroh.
+
+Prototype jetable : `crates/tallylight-proto` (`listen` affiche un ticket et pousse des états simulés ; `connect <ticket>` les affiche avec le chemin utilisé).
+
+Résultats au 2026-11-17 :
+- serveurdvp ↔ serveurdvp : appairage par ticket, états reçus, chemin direct (1 à 5 ms).
+- serveurdvp ↔ Galaxy A36 sur le même Wi-Fi, binaire lancé par adb : états reçus, chemin direct (8 à 13 ms après une première ligne à 757 ms).
+- Pas encore testé : téléphone hors du réseau local (relais, 4G), appairage par QR, intégration dans une application Android.
+
+Constats :
+- Le ticket fait 261 caractères : l'appairage passera par un QR ou un code court.
+- Hors d'une application, iroh lève une erreur non bloquante sur Android (`ndk-context` : « android context was not initialized ») : dans une application, le contexte Android doit être fourni à l'initialisation.
+- Binaire Android optimisé : 20 Mo (non réduit) ; à mesurer une fois réduit (`strip`, `opt-level = "z"`, LTO).
