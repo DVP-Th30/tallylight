@@ -14,5 +14,6 @@ iroh-tickets = "1.0.0"
 qrcode = { version = "0.14.1", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+tallylight-client = { version = "0.0.0", path = "../tallylight-client" }
 tallylight-core = { version = "0.0.0", path = "../tallylight-core" }
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "io-util", "time", "net", "sync", "signal"] }

@@ -2,6 +2,7 @@
 //! Voir `docs/DECISIONS.md` (D2) pour le choix du vocabulaire.
 
 pub mod claude;
+pub mod protocol;
 
 use serde::{Deserialize, Serialize};
 

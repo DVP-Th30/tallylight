@@ -18,14 +18,18 @@ use iroh::{
 };
 use iroh_tickets::endpoint::EndpointTicket;
 use serde_json::{Value, json};
-use tallylight_core::{Snapshot, claude::HookEvent};
+use tallylight_core::{
+    Snapshot,
+    claude::HookEvent,
+    protocol::{ALPN, Hello, Welcome},
+};
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     net::TcpListener,
 };
 
 use crate::{
-    ALPN, Hello, Welcome, data_dir,
+    data_dir,
     devices::{Admission, Device, Devices},
     identity, now,
     store::Store,

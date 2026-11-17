@@ -2952,7 +2952,20 @@ dependencies = [
  "qrcode",
  "serde",
  "serde_json",
+ "tallylight-client",
  "tallylight-core",
+ "tokio",
+]
+
+[[package]]
+name = "tallylight-client"
+version = "0.0.0"
+dependencies = [
+ "iroh",
+ "iroh-tickets",
+ "serde_json",
+ "tallylight-core",
+ "thiserror 2.0.21",
  "tokio",
 ]
 

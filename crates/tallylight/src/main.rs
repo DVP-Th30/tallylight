@@ -21,27 +21,9 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use iroh::SecretKey;
-use serde::{Deserialize, Serialize};
-
-/// Identifiant du protocole entre le cœur et les écrans, échangé à l'ouverture de la connexion.
-pub const ALPN: &[u8] = b"tallylight/state/1";
 
 /// Port local où le démon reçoit les hooks et les commandes.
 pub const DEFAULT_PORT: u16 = 47700;
-
-/// Première ligne envoyée par un écran : son nom, et un code s'il vient s'appairer.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Hello {
-    pub name: String,
-    #[serde(default)]
-    pub code: Option<String>,
-}
-
-/// Réponse du cœur ; les instantanés suivent si `ok` est vrai.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Welcome {
-    pub ok: bool,
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
