@@ -75,7 +75,12 @@ async fn serve(connection: Connection) -> Result<()> {
 
 async fn connect(ticket: &str) -> Result<()> {
     let ticket = EndpointTicket::from_str(ticket).context("ticket illisible")?;
-    let endpoint = Endpoint::bind(presets::N0).await?;
+    // TALLYLIGHT_RELAY_ONLY : interdit le chemin direct, pour mesurer le passage par un relais
+    let mut builder = Endpoint::builder(presets::N0);
+    if std::env::var_os("TALLYLIGHT_RELAY_ONLY").is_some() {
+        builder = builder.clear_ip_transports();
+    }
+    let endpoint = builder.bind().await?;
     let connection = endpoint
         .connect(ticket.endpoint_addr().clone(), ALPN)
         .await?;

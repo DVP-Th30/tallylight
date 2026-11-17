@@ -32,7 +32,8 @@ Prototype jetable : `crates/tallylight-proto` (`listen` affiche un ticket et pou
 Résultats au 2026-11-17 :
 - serveurdvp ↔ serveurdvp : appairage par ticket, états reçus, chemin direct (1 à 5 ms).
 - serveurdvp ↔ Galaxy A36 sur le même Wi-Fi, binaire lancé par adb : états reçus, chemin direct (8 à 13 ms après une première ligne à 757 ms).
-- Pas encore testé : téléphone hors du réseau local (relais, 4G), appairage par QR, intégration dans une application Android.
+- Même montage, chemin direct interdit côté téléphone (`TALLYLIGHT_RELAY_ONLY=1`) : états reçus par un relais public, 108 ms stables côté téléphone.
+- Pas encore testé : téléphone réellement hors du réseau local (4G, Wi-Fi tiers) et traversée du réseau d'un opérateur, appairage par QR, intégration dans une application Android. Le débogage sans fil d'Android exige un Wi-Fi : un test en 4G par adb demande de passer adb en port fixe, ou de lancer le binaire depuis le téléphone.
 
 Constats :
 - Le ticket fait 261 caractères : l'appairage passera par un QR ou un code court.
