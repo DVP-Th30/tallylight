@@ -1,0 +1,9 @@
+[package]
+name = "tallylight-core"
+description = "Vocabulaire d'état des sessions d'agents (aligné sur TaskState d'A2A)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
