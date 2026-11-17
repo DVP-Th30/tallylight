@@ -20,6 +20,14 @@ export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$TC/aarch64-linux-android34-cla
 export CC_aarch64_linux_android=$TC/aarch64-linux-android34-clang AR_aarch64_linux_android=$TC/llvm-ar
 memlimit 3.5 cargo build --release -p tallylight-proto --target aarch64-linux-android   # environ 8 min la première fois
 ```
+Bibliothèque pour une application Android, et ses liaisons Kotlin :
+```sh
+cargo build --profile embed -p tallylight-ffi --lib --target aarch64-linux-android   # libtallylight_ffi.so
+cargo build -p tallylight-ffi                                                        # générateur et bibliothèque hôte
+target/debug/uniffi-bindgen generate --library target/debug/libtallylight_ffi.so --language kotlin --no-format --out-dir <dossier kotlin>
+```
+Côté application : dépendance JNA (`net.java.dev.jna:jna`, variante aar), règles R8 qui gardent `com.sun.jna`, `uniffi` et `dev.tallylight`, et un objet Kotlin `dev.tallylight.Android` avec `external fun init(context)`. Encre fait tout cela par `tools/tallylight.sh`.
+
 Lancer sur le téléphone sans application, par adb :
 ```sh
 adb push target/aarch64-linux-android/release/tallylight-proto /data/local/tmp/

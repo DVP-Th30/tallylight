@@ -18,13 +18,19 @@ Le lien clé en main entre n'importe quel agent de code et n'importe quel écran
   - `tallylight watch [appairage]` : écran terminal ; sans argument, suit cette machine (le démon local lui fournit l'appairage). Les sessions qui attendent l'utilisateur passent en tête. L'écran garde sa propre identité (`screen-key`) et la liste des machines appairées (`machines`).
   - `tallylight pair` : affiche un QR et une chaîne d'appairage à usage unique ; `tallylight devices` et `tallylight unpair <identité>` gèrent les écrans autorisés (`devices.rs`, décision D8). Ces commandes parlent au démon par son port local (`local.rs`).
   - `tallylight hooks [--port N]` : affiche le bloc `hooks` (type `http`, délai 2 s) à fusionner dans les réglages de Claude Code. Rien n'est installé automatiquement pour l'instant.
+- `crates/tallylight-client` — la bibliothèque d'écran : `Screen::new(clé, nom)`, `screen.watch(appairage)` puis `watch.next()` pour chaque instantané. `tallylight watch` repose dessus. Le protocole partagé (`Hello`, `Welcome`, ALPN) vit dans `tallylight-core::protocol`.
+- `crates/tallylight-ffi` — liaisons pour les applications, générées par UniFFI (Kotlin aujourd'hui, Swift ensuite) : objet `Tallylight(data_dir, name)` avec `start(pairing, listener)`, `stop()`, `paired()` ; l'application reçoit `on_snapshot` et `on_link` (direct, relais, non appairé, hors ligne). La bibliothèque garde l'identité de l'écran et le ticket de la machine, et se reconnecte seule (attente de 2 à 60 s). Sur Android, `dev.tallylight.Android.init(context)` fournit le contexte dont iroh a besoin pour lire les serveurs DNS.
 - `crates/tallylight-proto` — prototype réseau jetable du premier jalon.
 
 Correspondance Claude Code → état : `UserPromptSubmit`, `PreToolUse`, `PostToolUse` → `working` ; `PermissionRequest` et `Notification` (`permission_prompt`, `elicitation_*`) → `input-required` ; `Stop` → `completed` ; `StopFailure` → `failed` ; `SessionEnd` → session retirée. Les `Stop` de sous-agents sont ignorés.
 
 Vérifié le 2026-11-17 avec une vraie session (`claude -p --settings <fichier de hooks>`, outil Read) : l'écran a affiché au travail → au travail (Read) → fini, puis la session a disparu.
 
+Première application le 2026-11-17 : le launcher Android Encre (`DVP-Th30/DVPLauncher`) embarque `libtallylight_ffi.so`, s'est appairé avec serveurdvp et reçoit les états réels en connexion directe (journal seulement, pas encore d'interface).
+
 Limites connues :
+- Poids : la bibliothèque Android fait 10 Mo (profil `embed`, `opt-level = "s"`, symboles retirés) ; l'APK d'Encre passe de 2,7 à 13 Mo. À réduire.
+- Une seule machine par écran côté `tallylight-ffi`.
 - Une interruption par l'utilisateur (Échap) ne déclenche aucun hook : la session reste « au travail ».
 - Les sessions ouvertes avant le démarrage du démon n'apparaissent qu'à leur prochain événement ; rien n'est conservé à l'arrêt du démon.
 - Démon arrêté : Claude Code affiche une erreur de hook non bloquante dans sa transcription.
