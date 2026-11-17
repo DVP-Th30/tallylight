@@ -1,6 +1,6 @@
 # Architecture
 
-État au 2026-11-17 : cadrage et prototype réseau. En code : le vocabulaire d'états (`crates/tallylight-core`) et un prototype jetable (`crates/tallylight-proto`).
+État au 2026-11-17 : première chaîne complète sur une machine — une vraie session Claude Code, ses hooks, le démon, un écran terminal relié par iroh.
 
 ## Promesse
 Le lien clé en main entre n'importe quel agent de code et n'importe quel écran : un binaire, un format d'état standard, un réseau privé intégré, des clients pour chaque plateforme.
@@ -10,6 +10,24 @@ Le lien clé en main entre n'importe quel agent de code et n'importe quel écran
 - **Bibliothèque cliente** — le même code Rust compilé pour Linux, macOS, Windows, Android, iOS et le navigateur. Une application l'intègre pour recevoir « quelles sessions, dans quel état ».
 - **Ponts simples** — sortie HTTP locale et sortie Bluetooth compatible avec le protocole d'objets d'Anthropic (`claude-desktop-buddy`), pour un écran ESP32 qui n'embarque pas le réseau.
 - **Réveil (optionnel, plus tard)** — petit service à déployer par l'éditeur d'une application, avec sa propre clé FCM/APNs, pour notifier un téléphone en veille.
+
+## En code aujourd'hui
+- `crates/tallylight-core` — modèle partagé : `State` (vocabulaire A2A), `Session`, `Snapshot`, et `claude::change` qui traduit un hook de Claude Code en changement d'état (fonction pure, testée).
+- `crates/tallylight` — le binaire :
+  - `tallylight daemon [--port N]` : reçoit les hooks sur `http://127.0.0.1:47700/hooks/claude`, tient les sessions (`store.rs`), sert `GET /sessions`, et pousse un instantané JSON par ligne à chaque écran connecté par iroh (ALPN `tallylight/state/0`). Identité réseau et ticket dans `~/.local/share/tallylight/` (`key`, `ticket`) : le ticket ne change pas d'un lancement à l'autre.
+  - `tallylight watch [ticket]` : écran terminal ; sans ticket, lit celui du démon local. Les sessions qui attendent l'utilisateur passent en tête.
+  - `tallylight hooks [--port N]` : affiche le bloc `hooks` (type `http`, délai 2 s) à fusionner dans les réglages de Claude Code. Rien n'est installé automatiquement pour l'instant.
+- `crates/tallylight-proto` — prototype réseau jetable du premier jalon.
+
+Correspondance Claude Code → état : `UserPromptSubmit`, `PreToolUse`, `PostToolUse` → `working` ; `PermissionRequest` et `Notification` (`permission_prompt`, `elicitation_*`) → `input-required` ; `Stop` → `completed` ; `StopFailure` → `failed` ; `SessionEnd` → session retirée. Les `Stop` de sous-agents sont ignorés.
+
+Vérifié le 2026-11-17 avec une vraie session (`claude -p --settings <fichier de hooks>`, outil Read) : l'écran a affiché au travail → au travail (Read) → fini, puis la session a disparu.
+
+Limites connues :
+- Une interruption par l'utilisateur (Échap) ne déclenche aucun hook : la session reste « au travail ».
+- Quiconque possède le ticket peut lire l'état : la liste des appareils autorisés reste à faire.
+- Les sessions ouvertes avant le démarrage du démon n'apparaissent qu'à leur prochain événement ; rien n'est conservé à l'arrêt du démon.
+- Démon arrêté : Claude Code affiche une erreur de hook non bloquante dans sa transcription.
 
 ## Flux
 1. L'agent déclenche un hook (Claude Code : hook de type `http`, POST local vers le cœur).
