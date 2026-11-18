@@ -20,6 +20,10 @@ const INTERRUPT_GRACE: u64 = 3;
 /// Âge au-delà duquel une session sans fiche locale ni événement est oubliée.
 const FORGET_AFTER: u64 = 12 * 3600;
 
+/// Délai laissé à une session qui s'est seulement annoncée pour montrer sa fiche locale ou commencer
+/// un tour ; passé ce délai, sans l'un ni l'autre, c'est une session fantôme.
+const GHOST_GRACE: u64 = 60;
+
 pub struct Store {
     machine: String,
     /// Fichier où les sessions sont conservées d'un lancement à l'autre.
@@ -119,6 +123,9 @@ impl Store {
 
         sessions.retain(|id, session| match local.get(id) {
             Some(card) => card.alive,
+            // Annoncée par un hook de démarrage, jamais vue au travail et sans processus : un
+            // lancement sans écran d'un autre outil, ou l'identifiant provisoire d'une reprise
+            None if session.state.is_none() => now.saturating_sub(session.updated_at) < GHOST_GRACE,
             None => now.saturating_sub(session.updated_at) < FORGET_AFTER,
         });
         last_event.retain(|id, _| sessions.contains_key(id));
@@ -271,6 +278,30 @@ mod tests {
             t + 30,
         );
         assert!(store.snapshot().sessions.is_empty());
+    }
+
+    #[test]
+    fn announced_sessions_without_a_process_are_ghosts() {
+        let store = Store::new("m".into(), None);
+        let t = now();
+        store.apply_claude(&event(
+            r#"{"session_id":"ghost","hook_event_name":"SessionStart","cwd":"/p/cache"}"#,
+        ));
+        store.apply_claude(&event(
+            r#"{"session_id":"done","hook_event_name":"UserPromptSubmit","cwd":"/p/demo"}"#,
+        ));
+        store.apply_claude(&event(r#"{"session_id":"done","hook_event_name":"Stop"}"#));
+        let ids = |store: &Store| -> Vec<String> {
+            let sessions = store.snapshot().sessions;
+            sessions.into_iter().map(|session| session.id).collect()
+        };
+
+        // Le temps que la fiche locale apparaisse, la session annoncée reste
+        store.reconcile(&HashMap::new(), t + 30);
+        assert_eq!(ids(&store), ["done", "ghost"]);
+        // Ni fiche ni tour : fantôme. La session qui a travaillé reste, même sans fiche
+        store.reconcile(&HashMap::new(), t + 90);
+        assert_eq!(ids(&store), ["done"]);
     }
 
     #[test]
