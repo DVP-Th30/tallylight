@@ -29,7 +29,7 @@ use tokio::{
 };
 
 use crate::{
-    data_dir,
+    claude_local, data_dir,
     devices::{Admission, Device, Devices},
     identity, now,
     store::Store,
@@ -54,7 +54,7 @@ pub async fn run(port: u16) -> Result<()> {
     write_private(&data_dir()?.join("ticket"), ticket.as_bytes())?;
 
     let app = Arc::new(App {
-        store: Store::new(machine_name()),
+        store: Store::new(machine_name(), Some(data_dir()?.join("sessions.json"))),
         devices: Mutex::new(Devices::load(data_dir()?.join("devices.json"))),
         ticket,
     });
@@ -74,6 +74,7 @@ pub async fn run(port: u16) -> Result<()> {
 
     let screens = {
         let endpoint = endpoint.clone();
+        let app = app.clone();
         async move {
             while let Some(incoming) = endpoint.accept().await {
                 let app = app.clone();
@@ -91,8 +92,21 @@ pub async fn run(port: u16) -> Result<()> {
         }
     };
 
+    // Rapprochement régulier avec les sessions réellement vivantes sur la machine
+    let reconcile = {
+        let app = app.clone();
+        async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(5));
+            loop {
+                tick.tick().await;
+                app.store.reconcile(&claude_local::read(), now());
+            }
+        }
+    };
+
     tokio::select! {
         result = axum::serve(listener, router) => result?,
+        _ = reconcile => {}
         _ = screens => {}
         _ = tokio::signal::ctrl_c() => {}
     }

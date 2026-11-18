@@ -37,6 +37,12 @@ Le ticket seul ne donne donc aucun droit : il dit seulement où joindre la machi
 Écarté : le ticket comme secret partagé (quiconque le voit lit l'état, et on ne peut pas retirer un seul appareil) ; un mot de passe commun (même défaut) ; une validation manuelle sur la machine à chaque appairage (impossible sur un serveur sans écran).
 Limites assumées : le port local du démon fait confiance à tout processus de la machine (un autre utilisateur de la même machine pourrait demander un code) ; à durcir par un socket réservé au propriétaire si des machines partagées sont visées.
 
+## D9 — Les fiches de session de Claude Code, en complément des hooks (2026-11-18)
+Les hooks seuls laissent trois trous : les sessions ouvertes avant le démon sont invisibles, une session tuée sans événement de fin reste affichée, et une interruption par Échap ne déclenche aucun hook (la session reste « au travail »). Claude Code tient une fiche par processus dans `~/.claude/sessions/<pid>.json` (identifiant de session, dossier, nom, statut `busy` / `idle`). Toutes les 5 secondes, le démon rapproche ses sessions de ces fiches : une session vivante inconnue apparaît, une session dont le processus est mort disparaît, et un tour « au travail » dont le processus est revenu au repos depuis plus de 3 secondes sans hook de fin passe en `canceled`. Le nom de la session, quand l'utilisateur ou l'agent en a donné un, devient son titre.
+Ce format est interne à Claude Code et peut changer sans préavis : il complète les hooks sans les remplacer, toute fiche illisible est ignorée, et rien d'autre n'y est lu (en particulier pas les fichiers `.key` voisins).
+Écarté : lire la transcription de la session pour y chercher la marque d'interruption (c'est lire le contenu des conversations) ; un simple délai sans événement (un outil long, comme une compilation, n'émet rien pendant des minutes).
+Non vérifié : la détection d'interruption repose sur le passage du statut à `idle` ; elle est couverte par les tests mais n'a pas encore été observée sur un vrai appui sur Échap.
+
 ## Questions ouvertes
 - Envoyer un message à une session Claude Code déjà ouverte (conditionne la voix) : Remote Control sans API, channels en aperçu, socket de boîte de réception au format non documenté. À valider par un essai.
 - Comportement de Claude Code quand un hook `PermissionRequest` dépasse son délai.

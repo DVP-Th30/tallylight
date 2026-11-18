@@ -48,6 +48,9 @@ pub struct Session {
     pub agent: String,
     /// Dossier de travail de la session.
     pub cwd: String,
+    /// Nom donné à la session par l'utilisateur ou l'agent, s'il y en a un.
+    #[serde(default)]
+    pub title: Option<String>,
     /// État du dernier tour ; `None` tant qu'aucun tour n'a commencé.
     pub state: Option<State>,
     /// Outil en cours d'exécution, quand l'agent travaille.
@@ -57,6 +60,11 @@ pub struct Session {
 }
 
 impl Session {
+    /// Nom à afficher : le titre de la session, sinon son dossier.
+    pub fn label(&self) -> &str {
+        self.title.as_deref().unwrap_or_else(|| self.project())
+    }
+
     /// Nom court affiché : dernier élément du dossier de travail.
     pub fn project(&self) -> &str {
         self.cwd
@@ -103,11 +111,15 @@ mod tests {
             id: "s".into(),
             agent: "claude-code".into(),
             cwd: "/home/th30/projets/tallylight/".into(),
+            title: None,
             state: None,
             tool: None,
             updated_at: 0,
         };
         assert_eq!(session.project(), "tallylight");
+        assert_eq!(session.label(), "tallylight");
+        session.title = Some("Refonte du volet".into());
+        assert_eq!(session.label(), "Refonte du volet");
         session.cwd = "/".into();
         assert_eq!(session.project(), "/");
     }

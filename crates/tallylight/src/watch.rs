@@ -41,7 +41,7 @@ pub async fn run(pairing: Option<&str>) -> Result<()> {
 /// Une ligne par session, celles qui attendent l'utilisateur en premier.
 fn render(snapshot: &Snapshot, now: u64) -> String {
     let mut sessions: Vec<&Session> = snapshot.sessions.iter().collect();
-    sessions.sort_by_key(|session| (rank(session.state), session.project().to_string()));
+    sessions.sort_by_key(|session| (rank(session.state), session.label().to_string()));
     let mut out = format!("{} · {} session(s)\n", snapshot.machine, sessions.len());
     for session in sessions {
         let (mark, label) = match session.state {
@@ -59,7 +59,7 @@ fn render(snapshot: &Snapshot, now: u64) -> String {
             .unwrap_or_default();
         out.push_str(&format!(
             "  {mark} {:<24} {label}{tool} · {}\n",
-            session.project(),
+            session.label(),
             ago(now.saturating_sub(session.updated_at)),
         ));
     }
@@ -111,6 +111,7 @@ mod tests {
             id: cwd.into(),
             agent: "claude-code".into(),
             cwd: cwd.into(),
+            title: None,
             state,
             tool: tool.map(Into::into),
             updated_at,

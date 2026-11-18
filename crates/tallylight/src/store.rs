@@ -1,56 +1,82 @@
-//! État des sessions de la machine, et sa diffusion aux écrans connectés.
+//! État des sessions de la machine, sa conservation et sa diffusion aux écrans connectés.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
+    path::PathBuf,
     sync::Mutex,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 use tallylight_core::{
-    Session, Snapshot,
+    Session, Snapshot, State,
     claude::{Change, HookEvent, change},
 };
 use tokio::sync::watch;
 
+use crate::{claude_local::LocalSession, now, write_private};
+
+/// Délai laissé au hook `Stop` avant de conclure qu'un tour a été interrompu.
+const INTERRUPT_GRACE: u64 = 3;
+
+/// Âge au-delà duquel une session sans fiche locale ni événement est oubliée.
+const FORGET_AFTER: u64 = 12 * 3600;
+
 pub struct Store {
     machine: String,
-    sessions: Mutex<BTreeMap<String, Session>>,
+    /// Fichier où les sessions sont conservées d'un lancement à l'autre.
+    path: Option<PathBuf>,
+    inner: Mutex<Inner>,
     snapshot: watch::Sender<Snapshot>,
 }
 
+#[derive(Default)]
+struct Inner {
+    sessions: BTreeMap<String, Session>,
+    /// Date du dernier événement reçu de chaque session, qu'il ait changé l'état ou non.
+    last_event: HashMap<String, u64>,
+}
+
 impl Store {
-    pub fn new(machine: String) -> Self {
+    /// `path` : fichier des sessions conservées ; elles sont relues au démarrage.
+    pub fn new(machine: String, path: Option<PathBuf>) -> Self {
+        let sessions: BTreeMap<String, Session> = path
+            .as_ref()
+            .and_then(|path| std::fs::read(path).ok())
+            .and_then(|bytes| serde_json::from_slice::<Vec<Session>>(&bytes).ok())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|session| (session.id.clone(), session))
+            .collect();
         let (snapshot, _) = watch::channel(Snapshot {
             machine: machine.clone(),
-            sessions: Vec::new(),
+            sessions: sessions.values().cloned().collect(),
         });
         Self {
             machine,
-            sessions: Mutex::new(BTreeMap::new()),
+            path,
+            inner: Mutex::new(Inner {
+                sessions,
+                last_event: HashMap::new(),
+            }),
             snapshot,
         }
     }
 
     /// Applique un événement de Claude Code ; les écrans ne sont prévenus que si quelque chose change.
     pub fn apply_claude(&self, event: &HookEvent) {
-        let mut sessions = self.sessions.lock().unwrap();
-        let before = sessions.get(&event.session_id).cloned();
+        let mut inner = self.inner.lock().unwrap();
+        let before = inner.sessions.clone();
         match change(event) {
             Change::Ignored => return,
             Change::Ended => {
-                sessions.remove(&event.session_id);
+                inner.sessions.remove(&event.session_id);
+                inner.last_event.remove(&event.session_id);
             }
             update => {
-                let session = sessions
+                inner.last_event.insert(event.session_id.clone(), now());
+                let session = inner
+                    .sessions
                     .entry(event.session_id.clone())
-                    .or_insert_with(|| Session {
-                        id: event.session_id.clone(),
-                        agent: "claude-code".to_string(),
-                        cwd: String::new(),
-                        state: None,
-                        tool: None,
-                        updated_at: now(),
-                    });
+                    .or_insert_with(|| blank(&event.session_id));
                 if !event.cwd.is_empty() {
                     session.cwd = event.cwd.clone();
                 }
@@ -63,12 +89,64 @@ impl Store {
                 }
             }
         }
-        if sessions.get(&event.session_id) != before.as_ref() {
-            self.snapshot.send_replace(Snapshot {
-                machine: self.machine.clone(),
-                sessions: sessions.values().cloned().collect(),
+        self.publish(&inner, &before);
+    }
+
+    /// Rapproche les sessions connues de ce que Claude Code écrit sur la machine :
+    /// - une session vivante encore inconnue apparaît (ouverte avant le démon, ou avant ses hooks) ;
+    /// - une session dont le processus est mort disparaît (fermée sans événement de fin) ;
+    /// - un tour « au travail » dont le processus est revenu au repos sans hook de fin a été interrompu.
+    pub fn reconcile(&self, local: &HashMap<String, LocalSession>, now: u64) {
+        let mut inner = self.inner.lock().unwrap();
+        let before = inner.sessions.clone();
+        let Inner {
+            sessions,
+            last_event,
+        } = &mut *inner;
+
+        sessions.retain(|id, session| match local.get(id) {
+            Some(card) => card.alive,
+            None => now.saturating_sub(session.updated_at) < FORGET_AFTER,
+        });
+        last_event.retain(|id, _| sessions.contains_key(id));
+
+        for (id, card) in local.iter().filter(|(_, card)| card.alive) {
+            let session = sessions.entry(id.clone()).or_insert_with(|| {
+                let mut session = blank(id);
+                session.cwd = card.cwd.clone();
+                session.updated_at = now;
+                session
             });
+            session.title = card.title.clone();
+            let quiet_since = last_event.get(id).copied().unwrap_or(session.updated_at);
+            let interrupted = session.state == Some(State::Working)
+                && card.status.as_deref() == Some("idle")
+                && card.status_at >= quiet_since
+                && now.saturating_sub(card.status_at) >= INTERRUPT_GRACE;
+            if interrupted {
+                session.state = Some(State::Canceled);
+                session.tool = None;
+                session.updated_at = card.status_at;
+            }
         }
+        self.publish(&inner, &before);
+    }
+
+    /// Prévient les écrans et enregistre, seulement si les sessions ont changé.
+    fn publish(&self, inner: &Inner, before: &BTreeMap<String, Session>) {
+        if &inner.sessions == before {
+            return;
+        }
+        let sessions: Vec<Session> = inner.sessions.values().cloned().collect();
+        if let Some(path) = &self.path
+            && let Ok(bytes) = serde_json::to_vec(&sessions)
+        {
+            let _ = write_private(path, &bytes);
+        }
+        self.snapshot.send_replace(Snapshot {
+            machine: self.machine.clone(),
+            sessions,
+        });
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -80,17 +158,21 @@ impl Store {
     }
 }
 
-fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_secs())
-        .unwrap_or(0)
+fn blank(id: &str) -> Session {
+    Session {
+        id: id.to_string(),
+        agent: "claude-code".to_string(),
+        cwd: String::new(),
+        title: None,
+        state: None,
+        tool: None,
+        updated_at: now(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tallylight_core::State;
 
     fn event(json: &str) -> HookEvent {
         serde_json::from_str(json).unwrap()
@@ -98,7 +180,7 @@ mod tests {
 
     #[test]
     fn sessions_follow_their_events() {
-        let store = Store::new("m".into());
+        let store = Store::new("m".into(), None);
         let mut updates = store.subscribe();
         store.apply_claude(&event(
             r#"{"session_id":"a","hook_event_name":"UserPromptSubmit","cwd":"/p/demo"}"#,
@@ -123,5 +205,73 @@ mod tests {
             r#"{"session_id":"a","hook_event_name":"SessionEnd"}"#,
         ));
         assert!(store.snapshot().sessions.is_empty());
+    }
+
+    fn local(alive: bool, status: &str, status_at: u64) -> LocalSession {
+        LocalSession {
+            alive,
+            cwd: "/p/demo".into(),
+            title: Some("Refonte".into()),
+            status: Some(status.into()),
+            status_at,
+        }
+    }
+
+    #[test]
+    fn local_cards_reveal_sessions_and_interruptions() {
+        let store = Store::new("m".into(), None);
+        let t = now();
+
+        // Session ouverte avant le démon : elle apparaît, sans état
+        store.reconcile(
+            &HashMap::from([("a".to_string(), local(true, "idle", t))]),
+            t,
+        );
+        let session = store.snapshot().sessions[0].clone();
+        assert_eq!((session.state, session.label()), (None, "Refonte"));
+
+        // Un tour commence, puis le processus revient au repos sans hook de fin : interrompu
+        store.apply_claude(&event(
+            r#"{"session_id":"a","hook_event_name":"UserPromptSubmit"}"#,
+        ));
+        store.reconcile(
+            &HashMap::from([("a".to_string(), local(true, "busy", t))]),
+            t + 10,
+        );
+        assert_eq!(store.snapshot().sessions[0].state, Some(State::Working));
+        store.reconcile(
+            &HashMap::from([("a".to_string(), local(true, "idle", t + 20))]),
+            t + 21,
+        );
+        assert_eq!(store.snapshot().sessions[0].state, Some(State::Working));
+        store.reconcile(
+            &HashMap::from([("a".to_string(), local(true, "idle", t + 20))]),
+            t + 24,
+        );
+        assert_eq!(store.snapshot().sessions[0].state, Some(State::Canceled));
+
+        // Processus mort : la session disparaît
+        store.reconcile(
+            &HashMap::from([("a".to_string(), local(false, "idle", t + 20))]),
+            t + 30,
+        );
+        assert!(store.snapshot().sessions.is_empty());
+    }
+
+    #[test]
+    fn sessions_survive_a_restart() {
+        let path =
+            std::env::temp_dir().join(format!("tallylight-store-{}.json", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let store = Store::new("m".into(), Some(path.clone()));
+        store.apply_claude(&event(
+            r#"{"session_id":"a","hook_event_name":"PermissionRequest","cwd":"/p/demo","tool_name":"Bash"}"#,
+        ));
+        let reloaded = Store::new("m".into(), Some(path.clone()));
+        assert_eq!(
+            reloaded.snapshot().sessions[0].state,
+            Some(State::InputRequired)
+        );
+        let _ = std::fs::remove_file(&path);
     }
 }

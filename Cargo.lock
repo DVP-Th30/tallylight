@@ -3215,6 +3215,7 @@ dependencies = [
  "getrandom 0.4.3",
  "iroh",
  "iroh-tickets",
+ "libc",
  "qrcode",
  "serde",
  "serde_json",

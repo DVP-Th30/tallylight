@@ -24,6 +24,8 @@ pub struct Session {
     /// Nom court : dernier élément du dossier de travail.
     pub project: String,
     pub cwd: String,
+    /// Nom donné à la session, s'il y en a un ; sinon afficher `project`.
+    pub title: Option<String>,
     /// État dans le vocabulaire A2A (`working`, `input-required`, `completed`, `failed`,
     /// `canceled`) ; vide tant qu'aucun tour n'a commencé.
     pub state: String,
@@ -145,7 +147,17 @@ async fn follow(data_dir: PathBuf, name: String, pairing: String, listener: Arc<
                 target.clear();
                 wait = Duration::from_secs(2);
                 let mut link = None;
-                while let Ok(Some(snapshot)) = watch.next().await {
+                // Le lien commence souvent par un relais puis passe en direct : on le réévalue
+                // régulièrement, pas seulement à l'arrivée d'un instantané
+                let mut check = tokio::time::interval(Duration::from_secs(3));
+                loop {
+                    let snapshot = tokio::select! {
+                        next = watch.next() => match next {
+                            Ok(Some(snapshot)) => Some(snapshot),
+                            _ => break,
+                        },
+                        _ = check.tick() => None,
+                    };
                     let now = if watch.relayed() {
                         Link::Relayed
                     } else {
@@ -155,7 +167,9 @@ async fn follow(data_dir: PathBuf, name: String, pairing: String, listener: Arc<
                         link = Some(now);
                         listener.on_link(now);
                     }
-                    listener.on_snapshot(convert(snapshot));
+                    if let Some(snapshot) = snapshot {
+                        listener.on_snapshot(convert(snapshot));
+                    }
                 }
             }
             Err(Error::NotPaired) | Err(Error::BadPairing) => {
@@ -200,6 +214,7 @@ fn convert(snapshot: tallylight_client::Snapshot) -> Snapshot {
                 id: session.id,
                 agent: session.agent,
                 cwd: session.cwd,
+                title: session.title,
                 tool: session.tool,
                 updated_at: session.updated_at,
             })

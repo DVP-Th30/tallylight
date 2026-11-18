@@ -7,6 +7,7 @@
 //!     tallylight unpair <identité>   # retire un écran (début de son identité)
 //!     tallylight hooks [--port N]    # affiche les hooks à ajouter aux réglages de Claude Code
 
+mod claude_local;
 mod daemon;
 mod devices;
 mod hooks;

@@ -28,16 +28,13 @@ Vérifié le 2026-11-17 avec une vraie session (`claude -p --settings <fichier d
 
 Première application le 2026-11-17 : le launcher Android Encre (`DVP-Th30/DVPLauncher`) embarque `libtallylight_ffi.so`, s'est appairé avec serveurdvp et reçoit les états réels en connexion directe (journal seulement, pas encore d'interface).
 
+Fiabilité de l'état (2026-11-18, décision D9) : les sessions sont conservées dans `sessions.json` et relues au démarrage ; `claude_local.rs` lit les fiches de session de Claude Code et `Store::reconcile` les rapproche toutes les 5 secondes (sessions déjà ouvertes, sessions mortes, interruptions, titre). Vérifié sur un démon de test : les trois sessions vivantes du serveur apparaissent sans aucun événement, avec leur titre, et une vraie demande d'autorisation (`PermissionRequest`) affiche « attend une réponse ».
+
 Limites connues :
 - Poids : la bibliothèque Android fait 10 Mo (profil `embed`, `opt-level = "s"`, symboles retirés) ; l'APK d'Encre passe de 2,7 à 13 Mo. À réduire.
 - Une seule machine par écran côté `tallylight-ffi`.
-- Une interruption par l'utilisateur (Échap) ne déclenche aucun hook : la session reste « au travail ».
-- Les sessions ouvertes avant le démarrage du démon n'apparaissent qu'à leur prochain événement ; rien n'est conservé à l'arrêt du démon.
+- L'interruption par Échap est déduite du statut de la fiche de session ; pas encore observée en vrai.
 - Démon arrêté : Claude Code affiche une erreur de hook non bloquante dans sa transcription.
-
-Protocole écran → cœur : l'écran ouvre un flux, envoie une ligne `{"name": …, "code": …}`, reçoit `{"ok": true|false}`, puis un instantané par ligne.
-
-Appairage vérifié le 2026-11-17 (démon de test isolé) : écran local admis automatiquement, écran inconnu refusé avec le ticket seul, admis avec la chaîne de `tallylight pair`, reconnu ensuite sans code, code refusé à un second écran, écran retiré refusé, liste conservée après redémarrage.
 
 ## Flux
 1. L'agent déclenche un hook (Claude Code : hook de type `http`, POST local vers le cœur).
