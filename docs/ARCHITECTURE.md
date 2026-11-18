@@ -26,6 +26,8 @@ Chaque session porte aussi `tool` et `detail` : ce que fait l'agent, ou ce pour 
 
 Correspondance Claude Code → état : `UserPromptSubmit`, `PreToolUse`, `PostToolUse` → `working` ; `PermissionRequest` et `Notification` (`permission_prompt`, `elicitation_*`) → `input-required` ; `Stop` → `completed` ; `StopFailure` → `failed` ; `SessionEnd` → session retirée. Les `Stop` de sous-agents sont ignorés.
 
+Vérifié sous macOS le 2026-11-18 : agent de lancement, quatre sessions ouvertes vues par `tallylight watch`, Encre appairé en lien direct.
+
 Vérifié le 2026-11-17 avec une vraie session (`claude -p --settings <fichier de hooks>`, outil Read) : l'écran a affiché au travail → au travail (Read) → fini, puis la session a disparu.
 
 Première application le 2026-11-17 : le launcher Android Encre (`DVP-Th30/DVPLauncher`) embarque `libtallylight_ffi.so`, s'est appairé avec serveurdvp et reçoit les états réels en connexion directe (journal seulement, pas encore d'interface).
@@ -36,6 +38,7 @@ Limites connues :
 - Poids de la bibliothèque Android : 7,2 Mo, 3,4 Mo une fois compressée (10,1 Mo au départ). Gagné le 2026-11-18 : iroh sans métriques ni ouverture de ports côté écran, générateur de liaisons sorti dans `tallylight-bindgen` (8,1 Mo), puis profil `embed` en `opt-level = "z"`, LTO et une seule unité de compilation (7,2 Mo). Reste possible : `panic = "abort"` retirerait les 2 Mo de tables de déroulement, mais un incident dans la bibliothèque ferait alors tomber l'application hôte ; écarté.
 - `tallylight watch` (terminal) ne suit encore qu'une machine à la fois ; les applications en suivent plusieurs.
 - L'interruption par Échap est déduite du statut de la fiche de session ; pas encore observée en vrai.
+- Le démon n'ouvre son port local qu'après avoir joint le réseau iroh (`endpoint.online()`), sans limite de temps : machine hors ligne au lancement, les hooks et les commandes locales sont refusés jusqu'au retour du réseau. `tallylight install` attend ce port 20 s avant de conclure.
 - Démon arrêté : Claude Code affiche une erreur de hook non bloquante dans sa transcription.
 
 ## Flux

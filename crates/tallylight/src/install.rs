@@ -4,13 +4,19 @@
 //! - les hooks, ajoutés aux réglages de Claude Code à côté de ceux qui existent (sauvegarde à côté) ;
 //! - le service : unité utilisateur systemd sous Linux, agent de lancement sous macOS.
 
-use std::{path::PathBuf, process::Command};
+use std::{
+    net::{Ipv4Addr, SocketAddr, TcpStream},
+    path::PathBuf,
+    process::Command,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 
 use crate::{claude_dir, hooks, local_port};
 
+#[cfg(not(target_os = "macos"))]
 const SERVICE: &str = "tallylight";
 #[cfg(target_os = "macos")]
 const LAUNCH_LABEL: &str = "dev.tallylight.daemon";
@@ -92,6 +98,38 @@ fn run(program: &str, args: &[&str]) -> Result<()> {
     Ok(())
 }
 
+/// Attend que le démon réponde sur son port local. Il ne l'ouvre qu'une fois joint au réseau
+/// (quelques secondes) : sans cette attente, un `tallylight pair` lancé aussitôt après
+/// l'installation trouve porte close.
+fn wait_for_daemon(port: u16, patience: Duration) -> bool {
+    let address = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+    let deadline = Instant::now() + patience;
+    loop {
+        if TcpStream::connect_timeout(&address, Duration::from_millis(500)).is_ok() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// Dit si le service lancé répond vraiment, plutôt que d'annoncer « démarré » sur la foi du lanceur.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn report_service(journal: &str) {
+    // Le service écoute sur le port par défaut, quel que soit TALLYLIGHT_PORT ici
+    if wait_for_daemon(crate::DEFAULT_PORT, Duration::from_secs(20)) {
+        println!("service : démarré ({journal})");
+    } else {
+        println!(
+            "service : lancé, mais le démon ne répond pas encore sur le port {} ; \
+             il attend peut-être le réseau, ou il a échoué ({journal})",
+            crate::DEFAULT_PORT
+        );
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn install_service() -> Result<()> {
     let exe = std::env::current_exe()?;
@@ -108,7 +146,7 @@ fn install_service() -> Result<()> {
     run("systemctl", &["--user", "daemon-reload"])?;
     run("systemctl", &["--user", "enable", "--now", SERVICE])?;
     run("systemctl", &["--user", "restart", SERVICE])?;
-    println!("service : démarré (systemctl --user status {SERVICE})");
+    report_service(&format!("systemctl --user status {SERVICE}"));
     Ok(())
 }
 
@@ -174,7 +212,7 @@ fn install_service() -> Result<()> {
         "launchctl",
         &["bootstrap", &domain, &plist.to_string_lossy()],
     )?;
-    println!("service : démarré (journal : {})", log.display());
+    report_service(&format!("journal : {}", log.display()));
     Ok(())
 }
 
@@ -233,6 +271,22 @@ mod tests {
         assert!(edit_settings(&path, |value| hooks::remove_claude(value, 4242)).unwrap());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn waiting_for_the_daemon_sees_a_port_that_opens_late() {
+        let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        // Personne n'écoute : l'attente s'arrête à l'échéance
+        assert!(!wait_for_daemon(port, Duration::from_millis(300)));
+        let late = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(400));
+            let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)).unwrap();
+            let _ = listener.accept();
+        });
+        assert!(wait_for_daemon(port, Duration::from_secs(10)));
+        late.join().unwrap();
     }
 
     #[test]

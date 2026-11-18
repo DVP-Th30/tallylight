@@ -14,7 +14,10 @@ use crate::local_port;
 pub async fn request(method: &str, path: &str) -> Result<Value> {
     let mut stream = TcpStream::connect(("127.0.0.1", local_port()))
         .await
-        .context("aucun démon sur cette machine : lancer `tallylight daemon`")?;
+        .context(
+            "le démon de cette machine ne répond pas : s'il vient d'être lancé, réessayer dans \
+             quelques secondes ; sinon `tallylight install`, ou `tallylight daemon` à la main",
+        )?;
     let request = format!(
         "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
     );

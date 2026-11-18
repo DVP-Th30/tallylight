@@ -19,6 +19,8 @@ tallylight uninstall    # retire les hooks et le service, garde les données
 ```
 Le service est une unité utilisateur systemd sous Linux, un agent de lancement sous macOS (`~/Library/LaunchAgents/dev.tallylight.daemon.plist`, journal dans `~/Library/Logs/tallylight.log`). Les hooks des autres outils (Vibe Island…) ne sont pas touchés.
 
+`install` attend que le démon réponde sur son port local (20 s au plus) avant d'annoncer « démarré » : le démon n'ouvre ce port qu'une fois joint au réseau, soit quelques secondes après son lancement. Sans réponse, il le dit et renvoie au journal.
+
 ## Intégration continue
 - `ci.yml` : format, clippy et tests à chaque poussée sur `main`.
 - `binaries.yml` : lancé à la main (`gh workflow run binaries`), construit `tallylight` pour macOS (Apple Silicon) et Linux et les dépose dans la version de développement `dev`. Pas automatique : une machine macOS compte dix fois dans le quota d'Actions.
@@ -57,6 +59,15 @@ adb shell /data/local/tmp/tallylight-proto connect <ticket>
 - Données : `~/.local/share/tallylight/` (`key`, `ticket`, lisibles par le seul propriétaire).
 - Mettre à jour : recompiler, recopier le binaire, `systemctl --user restart tallylight`.
 - Désinstaller : `systemctl --user disable --now tallylight`, puis retirer des réglages les hooks dont l'URL contient `47700/hooks/claude`.
+
+## Installation sur le Mac (2026-11-18)
+- Binaire : `~/.local/bin/tallylight`, pris dans la version `dev` ou compilé sur place (`cargo build --release -p tallylight`, Rust 1.99 dans `~/.cargo/bin`).
+- Agent de lancement `dev.tallylight.daemon` : `launchctl print gui/$(id -u)/dev.tallylight.daemon`, journal dans `~/Library/Logs/tallylight.log`.
+- Hooks : ajoutés à `~/.claude/settings.json`, sauvegarde dans `~/.claude/settings.json.avant-tallylight`.
+- Données : `~/.local/share/tallylight/`, comme sous Linux.
+- Mettre à jour : remplacer le binaire puis `tallylight install` (recharge l'agent).
+- Premier essai : `tallylight pair` lancé dans la seconde qui suivait `install` a répondu « Connection refused ». Le démon n'avait pas planté, il n'avait pas encore ouvert son port ; d'où l'attente ajoutée à `install`.
+- Écrans appairés : le terminal du Mac et Encre (Galaxy A36), en lien direct sur le Wi-Fi.
 
 ## Appareils de test
 - serveurdvp (Linux) et le Mac : cœur.
