@@ -226,11 +226,11 @@ async fn serve_screen(connection: &Connection, app: &App) -> Result<()> {
 fn describe_route(connection: &Connection) -> String {
     let paths = connection.paths();
     match paths.iter().find(|path| path.is_selected()) {
+        // Sans le délai, qui varie sans cesse et noierait le journal
         Some(path) => format!(
-            "{} via {:?}, {} ms",
+            "{} via {:?}",
             if path.is_relay() { "relais" } else { "direct" },
-            path.remote_addr(),
-            path.rtt().as_millis()
+            path.remote_addr()
         ),
         None => "aucun chemin".to_string(),
     }
