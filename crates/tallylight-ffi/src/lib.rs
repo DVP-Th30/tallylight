@@ -158,10 +158,11 @@ async fn follow(data_dir: PathBuf, name: String, pairing: String, listener: Arc<
                         },
                         _ = check.tick() => None,
                     };
-                    let now = if watch.relayed() {
-                        Link::Relayed
-                    } else {
-                        Link::Direct
+                    // Tant qu'aucun chemin n'est établi, l'écran reste sur « connexion »
+                    let now = match watch.relayed() {
+                        Some(true) => Link::Relayed,
+                        Some(false) => Link::Direct,
+                        None => Link::Connecting,
                     };
                     if link != Some(now) {
                         link = Some(now);

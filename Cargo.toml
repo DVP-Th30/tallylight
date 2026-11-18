@@ -11,6 +11,7 @@ repository = "https://github.com/DVP-Th30/tallylight"
 # Bibliothèque embarquée dans une application : la taille prime sur la vitesse
 [profile.embed]
 inherits = "release"
-opt-level = "s"
+opt-level = "z"
 strip = true
-codegen-units = 4
+lto = true
+codegen-units = 1

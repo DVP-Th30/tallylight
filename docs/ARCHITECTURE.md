@@ -31,7 +31,7 @@ Première application le 2026-11-17 : le launcher Android Encre (`DVP-Th30/DVPLa
 Fiabilité de l'état (2026-11-18, décision D9) : les sessions sont conservées dans `sessions.json` et relues au démarrage ; `claude_local.rs` lit les fiches de session de Claude Code et `Store::reconcile` les rapproche toutes les 5 secondes (sessions déjà ouvertes, sessions mortes, interruptions, titre). Vérifié sur un démon de test : les trois sessions vivantes du serveur apparaissent sans aucun événement, avec leur titre, et une vraie demande d'autorisation (`PermissionRequest`) affiche « attend une réponse ».
 
 Limites connues :
-- Poids : la bibliothèque Android fait 10 Mo (profil `embed`, `opt-level = "s"`, symboles retirés) ; l'APK d'Encre passe de 2,7 à 13 Mo. À réduire.
+- Poids de la bibliothèque Android : 7,2 Mo, 3,4 Mo une fois compressée (10,1 Mo au départ). Gagné le 2026-11-18 : iroh sans métriques ni ouverture de ports côté écran, générateur de liaisons sorti dans `tallylight-bindgen` (8,1 Mo), puis profil `embed` en `opt-level = "z"`, LTO et une seule unité de compilation (7,2 Mo). Reste possible : `panic = "abort"` retirerait les 2 Mo de tables de déroulement, mais un incident dans la bibliothèque ferait alors tomber l'application hôte ; écarté.
 - Une seule machine par écran côté `tallylight-ffi`.
 - L'interruption par Échap est déduite du statut de la fiche de session ; pas encore observée en vrai.
 - Démon arrêté : Claude Code affiche une erreur de hook non bloquante dans sa transcription.

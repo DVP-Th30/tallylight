@@ -11,15 +11,11 @@ description = "Liaisons Kotlin et Swift de la bibliothèque d'écran tallylight"
 name = "tallylight_ffi"
 crate-type = ["cdylib", "lib"]
 
-[[bin]]
-name = "uniffi-bindgen"
-path = "src/bin/uniffi-bindgen.rs"
-
 [dependencies]
 tallylight-client = { version = "0.0.0", path = "../tallylight-client" }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "time", "sync"] }
-uniffi = { version = "0.32.2", features = ["cli"] }
+uniffi = "0.32.2"
 
 [target.'cfg(target_os = "android")'.dependencies]
-iroh = "1.4.1"
+iroh = { version = "1.4.1", default-features = false, features = ["tls-ring"] }
 jni = "0.21"

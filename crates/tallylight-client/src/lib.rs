@@ -130,12 +130,13 @@ impl Watch {
         &self.ticket
     }
 
-    /// Vrai si la connexion passe par un relais plutôt qu'en direct.
-    pub fn relayed(&self) -> bool {
+    /// `Some(true)` si la connexion passe par un relais, `Some(false)` si elle est directe,
+    /// `None` tant qu'aucun chemin n'est établi.
+    pub fn relayed(&self) -> Option<bool> {
         self.connection
             .paths()
             .iter()
             .find(|path| path.is_selected())
-            .is_some_and(|path| path.is_relay())
+            .map(|path| path.is_relay())
     }
 }

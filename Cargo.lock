@@ -3225,6 +3225,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tallylight-bindgen"
+version = "0.0.0"
+dependencies = [
+ "uniffi",
+]
+
+[[package]]
 name = "tallylight-client"
 version = "0.0.0"
 dependencies = [

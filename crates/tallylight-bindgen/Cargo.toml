@@ -1,0 +1,9 @@
+[package]
+name = "tallylight-bindgen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+uniffi = { version = "0.32.2", features = ["cli"] }
