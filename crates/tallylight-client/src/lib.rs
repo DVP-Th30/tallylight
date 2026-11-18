@@ -44,6 +44,22 @@ pub fn generate_key() -> [u8; 32] {
     SecretKey::generate().to_bytes()
 }
 
+/// Sépare une chaîne d'appairage en ticket et code éventuel.
+fn split(pairing: &str) -> (&str, Option<&str>) {
+    match pairing.trim().split_once('#') {
+        Some((ticket, code)) => (ticket, Some(code)),
+        None => (pairing.trim(), None),
+    }
+}
+
+/// Identité de la machine désignée par une chaîne d'appairage ou un ticket : stable d'une connexion
+/// à l'autre, elle sert de clé pour reconnaître la machine.
+pub fn machine_id(pairing: &str) -> Result<String, Error> {
+    let (ticket, _) = split(pairing);
+    let address = EndpointTicket::from_str(ticket).map_err(|_| Error::BadPairing)?;
+    Ok(address.endpoint_addr().id.to_string())
+}
+
 /// Un écran, avec son identité réseau. Peut suivre plusieurs machines.
 pub struct Screen {
     endpoint: Endpoint,
@@ -66,10 +82,8 @@ impl Screen {
     /// Se connecte à une machine. `pairing` est la chaîne « ticket#code » de `tallylight pair`,
     /// ou le ticket seul d'une machine où cet écran est déjà appairé.
     pub async fn watch(&self, pairing: &str) -> Result<Watch, Error> {
-        let (ticket, code) = match pairing.trim().split_once('#') {
-            Some((ticket, code)) => (ticket, Some(code.to_string())),
-            None => (pairing.trim(), None),
-        };
+        let (ticket, code) = split(pairing);
+        let code = code.map(str::to_string);
         let address = EndpointTicket::from_str(ticket).map_err(|_| Error::BadPairing)?;
         let connection = self
             .endpoint

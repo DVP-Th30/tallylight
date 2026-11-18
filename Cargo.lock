@@ -3259,6 +3259,8 @@ version = "0.0.0"
 dependencies = [
  "iroh",
  "jni 0.21.1",
+ "serde",
+ "serde_json",
  "tallylight-client",
  "tokio",
  "uniffi",
