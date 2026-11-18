@@ -58,7 +58,7 @@ Résultats au 2026-11-17 :
 - serveurdvp ↔ serveurdvp : appairage par ticket, états reçus, chemin direct (1 à 5 ms).
 - serveurdvp ↔ Galaxy A36 sur le même Wi-Fi, binaire lancé par adb : états reçus, chemin direct (8 à 13 ms après une première ligne à 757 ms).
 - Même montage, chemin direct interdit côté téléphone (`TALLYLIGHT_RELAY_ONLY=1`) : états reçus par un relais public, 108 ms stables côté téléphone.
-- 2026-11-18, téléphone sur un Wi-Fi tiers (bureau, adresse privée 10.x), application Encre : états reçus, lien d'abord par relais puis direct en moins de 20 s. Réserve : Tailscale était actif sur le téléphone (nécessaire pour adb), donc le chemin « direct » a pu emprunter l'interface Tailscale plutôt que traverser les deux box ; à confirmer Tailscale éteint (la page « réglages » d'Encre affiche le type de lien).
+- 2026-11-18, téléphone sur un Wi-Fi tiers (bureau, adresse privée 10.x), application Encre : états reçus, lien d'abord par relais puis direct en moins de 20 s. Réserve : Tailscale était actif sur le téléphone (nécessaire pour adb), donc le chemin « direct » a pu emprunter l'interface Tailscale plutôt que traverser les deux box ; Tailscale éteint, le propriétaire a lu « lien direct » sur la page « réglages » d'Encre : la traversée des deux box semble donc fonctionner seule (observation à l'écran, non recoupée par le journal).
 - Pas encore testé : 4G, traversée du réseau d'un opérateur sans Tailscale, appairage par QR depuis une application.
 
 Constats :
