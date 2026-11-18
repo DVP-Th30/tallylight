@@ -192,14 +192,47 @@ async fn serve_screen(connection: &Connection, app: &App) -> Result<()> {
     }
 
     let mut updates = app.store.subscribe();
+    // Le chemin réseau de l'écran (relais ou direct, et vers quelle adresse) est journalisé à chaque
+    // changement : c'est la seule façon de vérifier de quel côté passe réellement la connexion
+    let mut route = String::new();
+    let mut check = tokio::time::interval(Duration::from_secs(5));
     loop {
+        let now = describe_route(connection);
+        if now != route {
+            println!("écran {} : {now}", hello.name);
+            route = now;
+        }
         let mut line = serde_json::to_vec(&*updates.borrow_and_update())?;
         line.push(b'\n');
         send.write_all(&line).await?;
-        tokio::select! {
-            changed = updates.changed() => changed?,
-            _ = connection.closed() => return Ok(()),
+        // Un tour d'horloge ne renvoie pas d'instantané : il ne sert qu'à relire le chemin
+        loop {
+            tokio::select! {
+                changed = updates.changed() => { changed?; break; }
+                _ = connection.closed() => return Ok(()),
+                _ = check.tick() => {
+                    let now = describe_route(connection);
+                    if now != route {
+                        println!("écran {} : {now}", hello.name);
+                        route = now;
+                    }
+                }
+            }
         }
+    }
+}
+
+/// Chemin réseau utilisé à cet instant vers un écran.
+fn describe_route(connection: &Connection) -> String {
+    let paths = connection.paths();
+    match paths.iter().find(|path| path.is_selected()) {
+        Some(path) => format!(
+            "{} via {:?}, {} ms",
+            if path.is_relay() { "relais" } else { "direct" },
+            path.remote_addr(),
+            path.rtt().as_millis()
+        ),
+        None => "aucun chemin".to_string(),
     }
 }
 
