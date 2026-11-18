@@ -83,13 +83,19 @@ pub fn change(event: &HookEvent) -> Change {
 const SUMMARY_MAX: usize = 140;
 
 /// Résumé court de ce que fait un outil, tiré de ses arguments : la description d'une commande, le
-/// nom d'un fichier, la question posée. Jamais le contenu d'un fichier ni la sortie d'une commande.
+/// nom d'un fichier, la question posée. Jamais le contenu d'un fichier, la sortie d'une commande,
+/// ni les arguments d'une commande sans description.
 fn summary(event: &HookEvent) -> Option<String> {
     let input = event.tool_input.as_ref()?;
     let text = |key: &str| input.get(key).and_then(|value| value.as_str());
     let file = |key: &str| text(key).map(|path| path.rsplit('/').next().unwrap_or(path));
     let found = match event.tool_name.as_deref()? {
-        "Bash" => text("description").or(text("command")),
+        // Sans description, on ne montre que le nom du programme : une commande entière peut
+        // contenir un mot de passe ou un jeton
+        "Bash" => text("description").or_else(|| {
+            let program = text("command")?.split_whitespace().next()?;
+            Some(program.rsplit('/').next().unwrap_or(program))
+        }),
         "Read" | "Edit" | "Write" | "NotebookEdit" => file("file_path").or(file("notebook_path")),
         "Grep" | "Glob" => text("pattern"),
         "WebFetch" => text("url"),
@@ -216,11 +222,18 @@ mod tests {
             matches!(change(&ask), Change::Set { detail: Some(detail), .. } if detail == "Quel nom pour le projet ?")
         );
         let long = event(&format!(
-            r#"{{"session_id":"s","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{{"command":"{}"}}}}"#,
+            r#"{{"session_id":"s","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{{"description":"{}"}}}}"#,
             "x".repeat(400)
         ));
         assert!(
             matches!(change(&long), Change::Set { detail: Some(detail), .. } if detail.chars().count() == 141)
+        );
+        // Sans description, seul le nom du programme sort : jamais les arguments
+        let secret = event(
+            r#"{"session_id":"s","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"/usr/bin/curl -H 'Authorization: Bearer abc' https://x"}}"#,
+        );
+        assert!(
+            matches!(change(&secret), Change::Set { detail: Some(detail), .. } if detail == "curl")
         );
     }
 }
