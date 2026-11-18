@@ -31,7 +31,7 @@ use tokio::{
 use crate::{
     claude_local, data_dir,
     devices::{Admission, Device, Devices},
-    identity, now,
+    identity, machine_name, now,
     store::Store,
     write_private,
 };
@@ -234,13 +234,4 @@ fn describe_route(connection: &Connection) -> String {
         ),
         None => "aucun chemin".to_string(),
     }
-}
-
-fn machine_name() -> String {
-    std::fs::read_to_string("/etc/hostname")
-        .ok()
-        .map(|name| name.trim().to_string())
-        .filter(|name| !name.is_empty())
-        .or_else(|| std::env::var("HOSTNAME").ok())
-        .unwrap_or_else(|| "machine".to_string())
 }

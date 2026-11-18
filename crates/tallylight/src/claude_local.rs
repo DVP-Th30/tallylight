@@ -83,11 +83,7 @@ fn merge(sessions: &mut HashMap<String, LocalSession>, card: Card, alive: fn(u32
 }
 
 fn sessions_dir() -> Option<PathBuf> {
-    let base = match std::env::var_os("CLAUDE_CONFIG_DIR") {
-        Some(dir) => PathBuf::from(dir),
-        None => PathBuf::from(std::env::var_os("HOME")?).join(".claude"),
-    };
-    Some(base.join("sessions"))
+    Some(crate::claude_dir().ok()?.join("sessions"))
 }
 
 /// Vrai si le processus existe (même s'il appartient à un autre utilisateur).

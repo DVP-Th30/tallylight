@@ -5,12 +5,15 @@
 //!     tallylight pair                # affiche un QR et une chaîne d'appairage pour un nouvel écran
 //!     tallylight devices             # liste les écrans appairés
 //!     tallylight unpair <identité>   # retire un écran (début de son identité)
-//!     tallylight hooks [--port N]    # affiche les hooks à ajouter aux réglages de Claude Code
+//!     tallylight install             # branche Claude Code sur le démon et le lance en permanence
+//!     tallylight uninstall           # retire les hooks et le service
+//!     tallylight hooks [--port N]    # affiche les hooks, pour les ajouter à la main
 
 mod claude_local;
 mod daemon;
 mod devices;
 mod hooks;
+mod install;
 mod local;
 mod store;
 mod watch;
@@ -37,12 +40,15 @@ async fn main() -> Result<()> {
         ["pair"] => local::pair().await,
         ["devices"] => local::devices().await,
         ["unpair", prefix] => local::unpair(prefix).await,
+        ["install"] => install::install(true),
+        ["install", "--no-service"] => install::install(false),
+        ["uninstall"] => install::uninstall(),
         ["hooks", rest @ ..] => {
             println!("{}", hooks::claude_settings(port(rest)?));
             Ok(())
         }
         _ => bail!(
-            "usage : tallylight daemon [--port N] | watch [appairage] | pair | devices | unpair <identité> | hooks [--port N]"
+            "usage : tallylight daemon [--port N] | watch [appairage] | pair | devices | unpair <identité> | install [--no-service] | uninstall | hooks [--port N]"
         ),
     }
 }
@@ -61,6 +67,28 @@ fn port(args: &[&str]) -> Result<u16> {
         ["--port", value] => value.parse().context("port invalide"),
         _ => bail!("option inconnue : {}", args.join(" ")),
     }
+}
+
+/// Dossier de configuration de Claude Code.
+pub fn claude_dir() -> Result<PathBuf> {
+    Ok(match std::env::var_os("CLAUDE_CONFIG_DIR") {
+        Some(dir) => PathBuf::from(dir),
+        None => PathBuf::from(std::env::var_os("HOME").context("HOME absent")?).join(".claude"),
+    })
+}
+
+/// Nom de la machine, tel qu'un écran l'affiche.
+pub fn machine_name() -> String {
+    std::fs::read_to_string("/etc/hostname")
+        .ok()
+        .or_else(|| {
+            // macOS n'a pas ce fichier
+            let output = std::process::Command::new("hostname").output().ok()?;
+            String::from_utf8(output.stdout).ok()
+        })
+        .map(|name| name.trim().trim_end_matches(".local").to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "machine".to_string())
 }
 
 /// Dossier des données de la machine : identités réseau, ticket, appareils appairés.

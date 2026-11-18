@@ -1,0 +1,34 @@
+name: binaries
+
+# Lancé à la main : les machines macOS coûtent dix fois plus cher que les machines Linux.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p tallylight --target ${{ matrix.target }}
+      - run: cp target/${{ matrix.target }}/release/tallylight tallylight-${{ matrix.target }}
+      # Version de développement, remplacée à chaque lancement
+      - run: |
+          gh release view dev >/dev/null 2>&1 || gh release create dev --prerelease --title "Développement" --notes "Binaires de la branche main, remplacés à chaque construction."
+          gh release upload dev tallylight-${{ matrix.target }} --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}

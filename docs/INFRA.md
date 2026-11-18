@@ -12,6 +12,20 @@ cargo fmt --check
 ```
 Sur serveurdvp la mémoire est comptée : lancer les grosses compilations sous `memlimit` (voir la configuration globale).
 
+## Installer sur une machine
+```sh
+tallylight install      # ajoute les hooks aux réglages de Claude Code (sauvegarde à côté) et lance le service
+tallylight uninstall    # retire les hooks et le service, garde les données
+```
+Le service est une unité utilisateur systemd sous Linux, un agent de lancement sous macOS (`~/Library/LaunchAgents/dev.tallylight.daemon.plist`, journal dans `~/Library/Logs/tallylight.log`). Les hooks des autres outils (Vibe Island…) ne sont pas touchés.
+
+## Intégration continue
+- `ci.yml` : format, clippy et tests à chaque poussée sur `main`.
+- `binaries.yml` : lancé à la main (`gh workflow run binaries`), construit `tallylight` pour macOS (Apple Silicon) et Linux et les dépose dans la version de développement `dev`. Pas automatique : une machine macOS compte dix fois dans le quota d'Actions.
+```sh
+gh release download dev -R DVP-Th30/tallylight -p 'tallylight-aarch64-apple-darwin' -O ~/.local/bin/tallylight --clobber   # sur le Mac
+```
+
 ## Compiler pour Android
 NDK 29 dans `~/android-sdk/ndk/29.0.14206865`, cible Rust `aarch64-linux-android` (installés le 2026-11-17).
 ```sh

@@ -3,7 +3,7 @@
 use anyhow::{Result, bail};
 use tallylight_client::{Screen, Session, Snapshot, State};
 
-use crate::{data_dir, identity, local, now, write_private};
+use crate::{data_dir, identity, local, machine_name, now, write_private};
 
 /// `pairing` : chaîne donnée par `tallylight pair` (« ticket#code »), ou ticket seul d'une machine
 /// déjà appairée. Sans argument, on suit cette machine : le démon local fournit lui-même l'appairage.
@@ -92,14 +92,6 @@ fn remember(ticket: &str) -> Result<()> {
         return Ok(());
     }
     write_private(&path, format!("{known}{ticket}\n").as_bytes())
-}
-
-fn machine_name() -> String {
-    std::fs::read_to_string("/etc/hostname")
-        .ok()
-        .map(|name| name.trim().to_string())
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| "machine".to_string())
 }
 
 #[cfg(test)]
