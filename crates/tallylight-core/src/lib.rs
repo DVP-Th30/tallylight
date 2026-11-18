@@ -53,8 +53,11 @@ pub struct Session {
     pub title: Option<String>,
     /// État du dernier tour ; `None` tant qu'aucun tour n'a commencé.
     pub state: Option<State>,
-    /// Outil en cours d'exécution, quand l'agent travaille.
+    /// Outil en cours d'exécution, ou outil pour lequel une autorisation est demandée.
     pub tool: Option<String>,
+    /// Ce que fait l'outil, en une ligne : description d'une commande, nom d'un fichier, question posée.
+    #[serde(default)]
+    pub detail: Option<String>,
     /// Dernier changement, en secondes depuis 1970.
     pub updated_at: u64,
 }
@@ -114,6 +117,7 @@ mod tests {
             title: None,
             state: None,
             tool: None,
+            detail: None,
             updated_at: 0,
         };
         assert_eq!(session.project(), "tallylight");

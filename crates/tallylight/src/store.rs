@@ -80,12 +80,25 @@ impl Store {
                 if !event.cwd.is_empty() {
                     session.cwd = event.cwd.clone();
                 }
-                if let Change::Set { state, tool } = update {
-                    if session.state != Some(state) || session.tool != tool {
-                        session.updated_at = now();
+                match update {
+                    Change::Set {
+                        state,
+                        tool,
+                        detail,
+                    } => {
+                        if session.state != Some(state) || session.tool != tool {
+                            session.updated_at = now();
+                        }
+                        session.state = Some(state);
+                        session.tool = tool;
+                        session.detail = detail;
                     }
-                    session.state = Some(state);
-                    session.tool = tool;
+                    // Attente signalée sans précision : on garde l'outil et le détail déjà connus
+                    Change::Waiting if session.state != Some(State::InputRequired) => {
+                        session.updated_at = now();
+                        session.state = Some(State::InputRequired);
+                    }
+                    _ => {}
                 }
             }
         }
@@ -126,6 +139,7 @@ impl Store {
             if interrupted {
                 session.state = Some(State::Canceled);
                 session.tool = None;
+                session.detail = None;
                 session.updated_at = card.status_at;
             }
         }
@@ -166,6 +180,7 @@ fn blank(id: &str) -> Session {
         title: None,
         state: None,
         tool: None,
+        detail: None,
         updated_at: now(),
     }
 }

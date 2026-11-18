@@ -52,11 +52,12 @@ fn render(snapshot: &Snapshot, now: u64) -> String {
             Some(State::Canceled) => ("–", "interrompu"),
             None => ("·", "ouverte"),
         };
-        let tool = session
-            .tool
-            .as_deref()
-            .map(|tool| format!(" ({tool})"))
-            .unwrap_or_default();
+        // « (Bash : Compile le projet) », ou l'outil seul, ou rien
+        let tool = match (session.tool.as_deref(), session.detail.as_deref()) {
+            (Some(tool), Some(detail)) => format!(" ({tool} : {detail})"),
+            (Some(tool), None) => format!(" ({tool})"),
+            _ => String::new(),
+        };
         out.push_str(&format!(
             "  {mark} {:<24} {label}{tool} · {}\n",
             session.label(),
@@ -106,6 +107,7 @@ mod tests {
             title: None,
             state,
             tool: tool.map(Into::into),
+            detail: None,
             updated_at,
         }
     }

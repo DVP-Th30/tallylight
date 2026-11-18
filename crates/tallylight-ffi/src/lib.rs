@@ -31,8 +31,10 @@ pub struct Session {
     /// État dans le vocabulaire A2A (`working`, `input-required`, `completed`, `failed`,
     /// `canceled`) ; vide tant qu'aucun tour n'a commencé.
     pub state: String,
-    /// Outil en cours d'exécution, quand l'agent travaille.
+    /// Outil en cours d'exécution, ou outil pour lequel une autorisation est demandée.
     pub tool: Option<String>,
+    /// Ce que fait l'outil, en une ligne : description d'une commande, nom d'un fichier, question posée.
+    pub detail: Option<String>,
     /// Dernier changement, en secondes depuis 1970.
     pub updated_at: u64,
 }
@@ -369,6 +371,7 @@ fn convert(sessions: Vec<tallylight_client::Session>) -> Vec<Session> {
             cwd: session.cwd,
             title: session.title,
             tool: session.tool,
+            detail: session.detail,
             updated_at: session.updated_at,
         })
         .collect()
