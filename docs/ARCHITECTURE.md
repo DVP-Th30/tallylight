@@ -58,7 +58,8 @@ Résultats au 2026-11-17 :
 - serveurdvp ↔ serveurdvp : appairage par ticket, états reçus, chemin direct (1 à 5 ms).
 - serveurdvp ↔ Galaxy A36 sur le même Wi-Fi, binaire lancé par adb : états reçus, chemin direct (8 à 13 ms après une première ligne à 757 ms).
 - Même montage, chemin direct interdit côté téléphone (`TALLYLIGHT_RELAY_ONLY=1`) : états reçus par un relais public, 108 ms stables côté téléphone.
-- Pas encore testé : téléphone réellement hors du réseau local (4G, Wi-Fi tiers) et traversée du réseau d'un opérateur, appairage par QR, intégration dans une application Android. Le débogage sans fil d'Android exige un Wi-Fi : un test en 4G par adb demande de passer adb en port fixe, ou de lancer le binaire depuis le téléphone.
+- 2026-11-18, téléphone sur un Wi-Fi tiers (bureau, adresse privée 10.x), application Encre : états reçus, lien d'abord par relais puis direct en moins de 20 s. Réserve : Tailscale était actif sur le téléphone (nécessaire pour adb), donc le chemin « direct » a pu emprunter l'interface Tailscale plutôt que traverser les deux box ; à confirmer Tailscale éteint (la page « réglages » d'Encre affiche le type de lien).
+- Pas encore testé : 4G, traversée du réseau d'un opérateur sans Tailscale, appairage par QR depuis une application.
 
 Constats :
 - Le ticket fait 261 caractères : l'appairage passera par un QR ou un code court.
