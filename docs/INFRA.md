@@ -19,7 +19,7 @@ tallylight uninstall    # retire les hooks et le service, garde les données
 ```
 Le service est une unité utilisateur systemd sous Linux, un agent de lancement sous macOS (`~/Library/LaunchAgents/dev.tallylight.daemon.plist`, journal dans `~/Library/Logs/tallylight.log`). Les hooks des autres outils (Vibe Island…) ne sont pas touchés.
 
-`install` attend que le démon réponde sur son port local (20 s au plus) avant d'annoncer « démarré » : le démon n'ouvre ce port qu'une fois joint au réseau, soit quelques secondes après son lancement. Sans réponse, il le dit et renvoie au journal.
+`install` attend que le démon réponde sur son port local (20 s au plus) avant d'annoncer « démarré » : le lanceur rend la main avant que le démon écoute. Sans réponse, il le dit et renvoie au journal.
 
 ## Intégration continue
 - `ci.yml` : format, clippy et tests à chaque poussée sur `main`.
@@ -66,7 +66,7 @@ adb shell /data/local/tmp/tallylight-proto connect <ticket>
 - Hooks : ajoutés à `~/.claude/settings.json`, sauvegarde dans `~/.claude/settings.json.avant-tallylight`.
 - Données : `~/.local/share/tallylight/`, comme sous Linux.
 - Mettre à jour : remplacer le binaire puis `tallylight install` (recharge l'agent).
-- Premier essai : `tallylight pair` lancé dans la seconde qui suivait `install` a répondu « Connection refused ». Le démon n'avait pas planté, il n'avait pas encore ouvert son port ; d'où l'attente ajoutée à `install`.
+- Premier essai : `tallylight pair` lancé dans la seconde qui suivait `install` a répondu « Connection refused ». Le démon n'avait pas planté : il attendait d'avoir joint le réseau pour ouvrir son port. Corrigé des deux côtés : le port s'ouvre dès le lancement (DECISIONS D10) et `install` attend qu'il réponde.
 - Écrans appairés : le terminal du Mac et Encre (Galaxy A36), en lien direct sur le Wi-Fi.
 
 ## Appareils de test

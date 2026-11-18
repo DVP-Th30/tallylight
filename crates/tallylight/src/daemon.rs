@@ -26,6 +26,7 @@ use tallylight_core::{
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     net::TcpListener,
+    sync::watch,
 };
 
 use crate::{
@@ -39,31 +40,51 @@ use crate::{
 struct App {
     store: Store,
     devices: Mutex<Devices>,
-    ticket: String,
+    /// Adresse de la machine pour les écrans ; vide tant que le réseau n'a pas été joint
+    ticket: watch::Receiver<Option<String>>,
 }
 
+/// Temps laissé au réseau quand un appairage est demandé juste après le lancement.
+const TICKET_PATIENCE: Duration = Duration::from_secs(15);
+
 pub async fn run(port: u16) -> Result<()> {
+    // Le port local d'abord : suivre les sessions de la machine ne dépend pas du réseau.
+    // Les hooks et les commandes locales n'arrivent que de la machine elle-même
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port))
+        .await
+        .with_context(|| format!("port {port} déjà pris ?"))?;
+    println!("hooks attendus sur http://127.0.0.1:{port}/hooks/claude");
+
     let endpoint = Endpoint::builder(presets::N0)
         .secret_key(identity("key")?)
         .alpns(vec![ALPN.to_vec()])
         .bind()
         .await?;
-    endpoint.online().await;
-    let ticket = EndpointTicket::new(endpoint.addr()).to_string();
-    // Le ticket dit où joindre la machine ; il ne donne aucun droit sans appairage
-    write_private(&data_dir()?.join("ticket"), ticket.as_bytes())?;
-
+    let (ticket_ready, ticket) = watch::channel(None);
     let app = Arc::new(App {
         store: Store::new(machine_name(), Some(data_dir()?.join("sessions.json"))),
         devices: Mutex::new(Devices::load(data_dir()?.join("devices.json"))),
         ticket,
     });
 
-    // Les hooks et les commandes locales n'arrivent que de la machine elle-même
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port))
-        .await
-        .with_context(|| format!("port {port} déjà pris ?"))?;
-    println!("hooks attendus sur http://127.0.0.1:{port}/hooks/claude");
+    // Le réseau ensuite, sans bloquer le reste : hors ligne, cette attente dure jusqu'au retour
+    // du réseau, et seul l'appairage d'un nouvel écran en dépend
+    let network = {
+        let endpoint = endpoint.clone();
+        let ticket_file = data_dir()?.join("ticket");
+        async move {
+            endpoint.online().await;
+            let ticket = EndpointTicket::new(endpoint.addr()).to_string();
+            // Le ticket dit où joindre la machine ; il ne donne aucun droit sans appairage
+            if let Err(error) = write_private(&ticket_file, ticket.as_bytes()) {
+                println!("ticket non enregistré : {error:#}");
+            }
+            println!("réseau joint, écrans attendus");
+            let _ = ticket_ready.send(Some(ticket));
+            // La tâche reste en vie : sa fin ne doit pas arrêter le démon
+            std::future::pending::<()>().await
+        }
+    };
     let router = Router::new()
         .route("/hooks/claude", post(claude_hook))
         .route("/sessions", get(sessions))
@@ -108,6 +129,7 @@ pub async fn run(port: u16) -> Result<()> {
         result = axum::serve(listener, router) => result?,
         _ = reconcile => {}
         _ = screens => {}
+        _ = network => {}
         _ = tokio::signal::ctrl_c() => {}
     }
     endpoint.close().await;
@@ -139,10 +161,21 @@ async fn sessions(State(app): State<Arc<App>>) -> Json<Snapshot> {
 
 /// Chaîne d'appairage à montrer à un écran : le ticket et un code à usage unique.
 async fn pair(State(app): State<Arc<App>>) -> Json<Value> {
+    let Some(ticket) = ticket(app.ticket.clone(), TICKET_PATIENCE).await else {
+        return Json(json!({
+            "error": "le démon n'a pas encore joint le réseau (machine hors ligne ?) : réessayer une fois la connexion revenue"
+        }));
+    };
     match app.devices.lock().unwrap().new_code() {
-        Ok(code) => Json(json!({ "pairing": format!("{}#{code}", app.ticket) })),
+        Ok(code) => Json(json!({ "pairing": format!("{ticket}#{code}") })),
         Err(error) => Json(json!({ "error": error.to_string() })),
     }
+}
+
+/// Le ticket de la machine, en lui laissant `patience` pour arriver si le réseau n'est pas encore joint.
+async fn ticket(mut ready: watch::Receiver<Option<String>>, patience: Duration) -> Option<String> {
+    let known = tokio::time::timeout(patience, ready.wait_for(Option::is_some)).await;
+    known.ok()?.ok()?.clone()
 }
 
 async fn devices(State(app): State<Arc<App>>) -> Json<Vec<Device>> {
@@ -233,5 +266,30 @@ fn describe_route(connection: &Connection) -> String {
             path.remote_addr()
         ),
         None => "aucun chemin".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn pairing_waits_for_the_network_then_gives_up() {
+        let (ready, ticket_slot) = watch::channel(None);
+        // Hors ligne : la demande abandonne à l'échéance au lieu de rester bloquée
+        assert_eq!(
+            ticket(ticket_slot.clone(), Duration::from_millis(50)).await,
+            None
+        );
+        // Le réseau arrive pendant l'attente : la demande aboutit
+        let waiting = tokio::spawn(ticket(ticket_slot.clone(), Duration::from_secs(10)));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        ready.send(Some("ticket".to_string())).unwrap();
+        assert_eq!(waiting.await.unwrap().as_deref(), Some("ticket"));
+        // Ensuite la réponse est immédiate
+        assert_eq!(
+            ticket(ticket_slot, Duration::ZERO).await.as_deref(),
+            Some("ticket")
+        );
     }
 }

@@ -14,7 +14,7 @@ Le lien clé en main entre n'importe quel agent de code et n'importe quel écran
 ## En code aujourd'hui
 - `crates/tallylight-core` — modèle partagé : `State` (vocabulaire A2A), `Session`, `Snapshot`, et `claude::change` qui traduit un hook de Claude Code en changement d'état (fonction pure, testée).
 - `crates/tallylight` — le binaire :
-  - `tallylight daemon [--port N]` : reçoit les hooks sur `http://127.0.0.1:47700/hooks/claude`, tient les sessions (`store.rs`), sert `GET /sessions`, et pousse un instantané JSON par ligne à chaque écran appairé connecté par iroh (ALPN `tallylight/state/1`). Données dans `~/.local/share/tallylight/` : `key` (identité, donc ticket stable), `ticket`, `devices.json` (écrans autorisés).
+  - `tallylight daemon [--port N]` : reçoit les hooks sur `http://127.0.0.1:47700/hooks/claude`, tient les sessions (`store.rs`), sert `GET /sessions`, et pousse (le port local est ouvert dès le lancement, le réseau est joint ensuite en tâche de fond, décision D10) un instantané JSON par ligne à chaque écran appairé connecté par iroh (ALPN `tallylight/state/1`). Données dans `~/.local/share/tallylight/` : `key` (identité, donc ticket stable), `ticket`, `devices.json` (écrans autorisés).
   - `tallylight watch [appairage]` : écran terminal ; sans argument, suit cette machine (le démon local lui fournit l'appairage). Les sessions qui attendent l'utilisateur passent en tête. L'écran garde sa propre identité (`screen-key`) et la liste des machines appairées (`machines`).
   - `tallylight pair` : affiche un QR et une chaîne d'appairage à usage unique ; `tallylight devices` et `tallylight unpair <identité>` gèrent les écrans autorisés (`devices.rs`, décision D8). Ces commandes parlent au démon par son port local (`local.rs`).
   - `tallylight install` / `uninstall` (`install.rs`) : ajoute ou retire les hooks dans les réglages de Claude Code (sauvegarde, ordre des clés conservé, hooks des autres outils intacts) et installe le service (systemd utilisateur sous Linux, agent de lancement sous macOS). `tallylight hooks` affiche le bloc pour qui préfère le coller à la main.
@@ -38,7 +38,7 @@ Limites connues :
 - Poids de la bibliothèque Android : 7,2 Mo, 3,4 Mo une fois compressée (10,1 Mo au départ). Gagné le 2026-11-18 : iroh sans métriques ni ouverture de ports côté écran, générateur de liaisons sorti dans `tallylight-bindgen` (8,1 Mo), puis profil `embed` en `opt-level = "z"`, LTO et une seule unité de compilation (7,2 Mo). Reste possible : `panic = "abort"` retirerait les 2 Mo de tables de déroulement, mais un incident dans la bibliothèque ferait alors tomber l'application hôte ; écarté.
 - `tallylight watch` (terminal) ne suit encore qu'une machine à la fois ; les applications en suivent plusieurs.
 - L'interruption par Échap est déduite du statut de la fiche de session ; pas encore observée en vrai.
-- Le démon n'ouvre son port local qu'après avoir joint le réseau iroh (`endpoint.online()`), sans limite de temps : machine hors ligne au lancement, les hooks et les commandes locales sont refusés jusqu'au retour du réseau. `tallylight install` attend ce port 20 s avant de conclure.
+- Machine hors ligne au lancement du démon : les sessions sont suivies normalement, mais `tallylight pair` et `tallylight watch` sans argument échouent (après 15 s d'attente) tant que le réseau n'a pas été joint une première fois (décision D10).
 - Démon arrêté : Claude Code affiche une erreur de hook non bloquante dans sa transcription.
 
 ## Flux

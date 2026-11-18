@@ -43,6 +43,12 @@ Ce format est interne à Claude Code et peut changer sans préavis : il complèt
 Écarté : lire la transcription de la session pour y chercher la marque d'interruption (c'est lire le contenu des conversations) ; un simple délai sans événement (un outil long, comme une compilation, n'émet rien pendant des minutes).
 Non vérifié : la détection d'interruption repose sur le passage du statut à `idle` ; elle est couverte par les tests mais n'a pas encore été observée sur un vrai appui sur Échap.
 
+## D10 — Le port local s'ouvre avant le réseau (2026-11-18)
+Le démon ouvrait son port local après avoir joint le réseau iroh, attente sans limite de temps. Deux défauts : une commande lancée juste après le démarrage trouvait porte close (constaté à la première installation sur le Mac), et une machine lancée hors ligne refusait tous les hooks jusqu'au retour du réseau, alors que suivre les sessions est purement local. Le port est maintenant ouvert en premier ; le réseau est joint en tâche de fond et le ticket n'existe qu'ensuite. Seul l'appairage a besoin du ticket : `POST /pair` l'attend 15 secondes puis répond par une erreur lisible.
+Vérifié le 2026-11-18 sur un démon de test privé de réseau (`sandbox-exec`) : hooks et `/sessions` répondent, `pair` explique qu'il attend le réseau ; en ligne, port ouvert en 100 ms et `pair` servi en 0,35 s.
+Écarté : borner l'attente du réseau puis continuer sans ticket (l'appairage resterait cassé jusqu'au redémarrage) ; garder l'ordre et ne faire patienter que `install` (ne règle pas le cas hors ligne).
+Limite : le ticket est calculé une fois, à la première connexion au réseau, comme avant.
+
 ## Questions ouvertes
 - Envoyer un message à une session Claude Code déjà ouverte (conditionne la voix) : Remote Control sans API, channels en aperçu, socket de boîte de réception au format non documenté. À valider par un essai.
 - Comportement de Claude Code quand un hook `PermissionRequest` dépasse son délai.

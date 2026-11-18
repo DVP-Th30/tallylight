@@ -42,7 +42,10 @@ pub async fn pairing() -> Result<String> {
     answer["pairing"]
         .as_str()
         .map(str::to_string)
-        .with_context(|| format!("appairage refusé : {answer}"))
+        .with_context(|| match answer["error"].as_str() {
+            Some(reason) => format!("appairage impossible : {reason}"),
+            None => format!("appairage refusé : {answer}"),
+        })
 }
 
 pub async fn pair() -> Result<()> {
