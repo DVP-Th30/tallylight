@@ -108,6 +108,8 @@ mod tests {
             state,
             tool: tool.map(Into::into),
             detail: None,
+            last_message: None,
+            url: None,
             updated_at,
         }
     }

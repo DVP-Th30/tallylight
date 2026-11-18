@@ -19,6 +19,9 @@ pub struct HookEvent {
     pub tool_input: Option<serde_json::Value>,
     #[serde(default)]
     pub notification_type: Option<String>,
+    /// Dernier message de l'agent, fourni à la fin d'un tour (`Stop`).
+    #[serde(default)]
+    pub last_assistant_message: Option<String>,
     /// Présent quand le hook vient d'un sous-agent.
     #[serde(default)]
     pub agent_id: Option<String>,
@@ -77,6 +80,25 @@ pub fn change(event: &HookEvent) -> Change {
         "SessionEnd" => Change::Ended,
         _ => Change::Ignored,
     }
+}
+
+/// Longueur maximale du dernier message envoyé aux écrans.
+const MESSAGE_MAX: usize = 600;
+
+/// Début du dernier message de l'agent, à la fin d'un tour de la session elle-même.
+pub fn last_message(event: &HookEvent) -> Option<String> {
+    if event.hook_event_name != "Stop" || event.agent_id.is_some() {
+        return None;
+    }
+    let text = event.last_assistant_message.as_deref()?.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let mut short: String = text.chars().take(MESSAGE_MAX).collect();
+    if short.len() < text.len() {
+        short.push('…');
+    }
+    Some(short)
 }
 
 /// Longueur maximale d'un résumé envoyé aux écrans.
@@ -235,5 +257,22 @@ mod tests {
         assert!(
             matches!(change(&secret), Change::Set { detail: Some(detail), .. } if detail == "curl")
         );
+    }
+
+    #[test]
+    fn the_last_message_comes_with_the_end_of_the_turn() {
+        let stop = event(
+            r#"{"session_id":"s","hook_event_name":"Stop","last_assistant_message":"  Tout est poussé.  "}"#,
+        );
+        assert_eq!(last_message(&stop).as_deref(), Some("Tout est poussé."));
+        let sub = event(
+            r#"{"session_id":"s","hook_event_name":"Stop","agent_id":"a","last_assistant_message":"x"}"#,
+        );
+        assert_eq!(last_message(&sub), None);
+        let long = event(&format!(
+            r#"{{"session_id":"s","hook_event_name":"Stop","last_assistant_message":"{}"}}"#,
+            "é".repeat(900)
+        ));
+        assert_eq!(last_message(&long).unwrap().chars().count(), 601);
     }
 }

@@ -21,6 +21,8 @@ pub struct LocalSession {
     pub status: Option<String>,
     /// Date de ce statut, en secondes depuis 1970.
     pub status_at: u64,
+    /// Adresse de la session dans l'application Claude, quand elle est suivie à distance.
+    pub url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -39,6 +41,9 @@ struct Card {
     /// En millisecondes.
     #[serde(default)]
     status_updated_at: u64,
+    /// Identifiant de la session côté claude.ai (Remote Control), de la forme `session_…`.
+    #[serde(default)]
+    bridge_session_id: Option<String>,
 }
 
 /// Lit les fiches de la machine, regroupées par identifiant de session.
@@ -78,6 +83,10 @@ fn merge(sessions: &mut HashMap<String, LocalSession>, card: Card, alive: fn(u32
         session.title = card
             .name
             .filter(|_| card.name_source.as_deref() != Some("derived"));
+        session.url = card
+            .bridge_session_id
+            .filter(|id| id.starts_with("session_"))
+            .map(|id| format!("https://claude.ai/code/{id}"));
     }
     session.alive |= alive;
 }
@@ -124,7 +133,7 @@ mod tests {
         merge(
             &mut sessions,
             card(
-                r#"{"pid":2,"sessionId":"s","cwd":"/new","name":"Refonte","nameSource":"user","status":"idle","statusUpdatedAt":5000}"#,
+                r#"{"pid":2,"sessionId":"s","cwd":"/new","name":"Refonte","nameSource":"user","status":"idle","statusUpdatedAt":5000,"bridgeSessionId":"session_abc"}"#,
             ),
             |_| true,
         );
@@ -134,6 +143,10 @@ mod tests {
         assert_eq!(session.title.as_deref(), Some("Refonte"));
         assert_eq!(session.status.as_deref(), Some("idle"));
         assert_eq!(session.status_at, 5);
+        assert_eq!(
+            session.url.as_deref(),
+            Some("https://claude.ai/code/session_abc")
+        );
     }
 
     #[test]

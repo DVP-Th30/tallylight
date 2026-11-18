@@ -8,7 +8,7 @@ use std::{
 
 use tallylight_core::{
     Session, Snapshot, State,
-    claude::{Change, HookEvent, change},
+    claude::{Change, HookEvent, change, last_message},
 };
 use tokio::sync::watch;
 
@@ -84,6 +84,12 @@ impl Store {
                 if !event.cwd.is_empty() {
                     session.cwd = event.cwd.clone();
                 }
+                // Le dernier message vaut jusqu'au tour suivant
+                if let Some(message) = last_message(event) {
+                    session.last_message = Some(message);
+                } else if event.hook_event_name == "UserPromptSubmit" {
+                    session.last_message = None;
+                }
                 match update {
                     Change::Set {
                         state,
@@ -138,6 +144,7 @@ impl Store {
                 session
             });
             session.title = card.title.clone();
+            session.url = card.url.clone();
             let quiet_since = last_event.get(id).copied().unwrap_or(session.updated_at);
             let interrupted = session.state == Some(State::Working)
                 && card.status.as_deref() == Some("idle")
@@ -188,6 +195,8 @@ fn blank(id: &str) -> Session {
         state: None,
         tool: None,
         detail: None,
+        last_message: None,
+        url: None,
         updated_at: now(),
     }
 }
@@ -236,6 +245,7 @@ mod tests {
             title: Some("Refonte".into()),
             status: Some(status.into()),
             status_at,
+            url: None,
         }
     }
 

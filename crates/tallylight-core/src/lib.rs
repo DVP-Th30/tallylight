@@ -58,6 +58,12 @@ pub struct Session {
     /// Ce que fait l'outil, en une ligne : description d'une commande, nom d'un fichier, question posée.
     #[serde(default)]
     pub detail: Option<String>,
+    /// Début du dernier message de l'agent, quand il a fini son tour.
+    #[serde(default)]
+    pub last_message: Option<String>,
+    /// Adresse qui ouvre la session dans l'application de l'agent, si elle en a une.
+    #[serde(default)]
+    pub url: Option<String>,
     /// Dernier changement, en secondes depuis 1970.
     pub updated_at: u64,
 }
@@ -118,6 +124,8 @@ mod tests {
             state: None,
             tool: None,
             detail: None,
+            last_message: None,
+            url: None,
             updated_at: 0,
         };
         assert_eq!(session.project(), "tallylight");

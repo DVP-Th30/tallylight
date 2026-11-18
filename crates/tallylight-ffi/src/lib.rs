@@ -35,6 +35,10 @@ pub struct Session {
     pub tool: Option<String>,
     /// Ce que fait l'outil, en une ligne : description d'une commande, nom d'un fichier, question posée.
     pub detail: Option<String>,
+    /// Début du dernier message de l'agent, quand il a fini son tour.
+    pub last_message: Option<String>,
+    /// Adresse qui ouvre la session dans l'application de l'agent, si elle en a une.
+    pub url: Option<String>,
     /// Dernier changement, en secondes depuis 1970.
     pub updated_at: u64,
 }
@@ -372,6 +376,8 @@ fn convert(sessions: Vec<tallylight_client::Session>) -> Vec<Session> {
             title: session.title,
             tool: session.tool,
             detail: session.detail,
+            last_message: session.last_message,
+            url: session.url,
             updated_at: session.updated_at,
         })
         .collect()
