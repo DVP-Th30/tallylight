@@ -1,0 +1,6 @@
+# Règles R8 appliquées automatiquement à l'application qui intègre la bibliothèque.
+# Les liaisons UniFFI et JNA sont appelées par réflexion et depuis le code natif.
+-keep class com.sun.jna.** { *; }
+-keep class uniffi.** { *; }
+-keep class dev.tallylight.** { *; }
+-dontwarn java.awt.**

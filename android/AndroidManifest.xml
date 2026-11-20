@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Manifeste de la bibliothèque : ses permissions sont fusionnées dans celui de l'application.
+     @MIN_SDK@ est remplacé par build-aar.sh. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.tallylight">
+
+    <uses-sdk android:minSdkVersion="@MIN_SDK@" />
+
+    <!-- Connexion chiffrée aux machines suivies (iroh), en direct ou par relais -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Android 17 et plus : sans elle, la connexion directe à une machine du même réseau local est
+         refusée en silence et tout passe par un relais. Elle doit aussi être demandée à l'utilisateur. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+</manifest>

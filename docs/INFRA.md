@@ -44,6 +44,12 @@ target/debug/tallylight-bindgen generate --library target/debug/libtallylight_ff
 ```
 Côté application : dépendance JNA (`net.java.dev.jna:jna`, variante aar), règles R8 qui gardent `com.sun.jna`, `uniffi` et `dev.tallylight`, et un objet Kotlin `dev.tallylight.Android` avec `external fun init(context)`. Encre fait tout cela par `tools/tallylight.sh`.
 
+Paquet prêt à intégrer (2026-11-20) : `android/build-aar.sh` produit `target/android/tallylight-<version>.aar`, qui contient la bibliothèque native (profil `embed`, segments alignés sur 16 Ko), les liaisons Kotlin compilées, `dev.tallylight.Android`, les permissions (dont `ACCESS_LOCAL_NETWORK`) et les règles R8. L'application n'ajoute que JNA (`net.java.dev.jna:jna:5.x@aar`). `--dry-run` affiche les étapes, `--stub-native` vérifie la chaîne sans NDK. Variables utiles : `ANDROID_HOME`, `KOTLINC`, `ABIS` (défaut `arm64-v8a x86_64`). Sur serveurdvp :
+```sh
+ANDROID_HOME=~/android-sdk KOTLINC=~/opt/kotlinc-2.4.21/bin/kotlinc ABIS=arm64-v8a memlimit 2.8 android/build-aar.sh
+```
+Vérifié le 2026-11-20 sur serveurdvp (NDK 29, kotlinc 2.4.21 installé dans `~/opt`) : AAR de 3,5 Mo, bibliothèque arm64 de 7,4 Mo sans dépendance hors du système, environ 9 minutes. Pas encore intégré dans Encre. La cible Rust `x86_64-linux-android` (émulateur) n'est pas installée sur serveurdvp.
+
 Android 17 (application ciblant le SDK 37) : sans la permission `android.permission.ACCESS_LOCAL_NETWORK`, le système refuse à l'application toute connexion vers le réseau local. La connexion directe à une machine du même Wi-Fi échoue alors en silence et tout passe par un relais (constaté le 2026-11-18 avec Encre : `RELAYED` sans la permission, `DIRECT` avec). Un binaire lancé par adb n'est pas soumis à cette règle, ce qui masquait le problème lors du premier essai.
 
 Lancer sur le téléphone sans application, par adb :
