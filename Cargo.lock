@@ -3262,6 +3262,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tallylight-client",
+ "thiserror 2.0.21",
  "tokio",
  "uniffi",
 ]

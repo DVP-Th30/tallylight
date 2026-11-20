@@ -18,6 +18,7 @@ use iroh::{
 };
 use iroh_tickets::endpoint::EndpointTicket;
 use serde_json::{Value, json};
+use tallylight_client::Relays;
 use tallylight_core::{
     Snapshot,
     claude::HookEvent,
@@ -47,15 +48,24 @@ struct App {
 /// Temps laissé au réseau quand un appairage est demandé juste après le lancement.
 const TICKET_PATIENCE: Duration = Duration::from_secs(15);
 
-pub async fn run(port: u16) -> Result<()> {
+pub async fn run(port: u16, relays: Relays) -> Result<()> {
     // Le port local d'abord : suivre les sessions de la machine ne dépend pas du réseau.
     // Les hooks et les commandes locales n'arrivent que de la machine elle-même
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port))
         .await
         .with_context(|| format!("port {port} déjà pris ?"))?;
     println!("hooks attendus sur http://127.0.0.1:{port}/hooks/claude");
+    if relays.is_n0() {
+        println!(
+            "relais : n0 (publics, réservés au développement ; --relay pour indiquer le sien)"
+        );
+    } else {
+        println!("relais : {relays}");
+    }
 
-    let endpoint = Endpoint::builder(presets::N0)
+    // Le relais effectif part dans le ticket : `endpoint.addr()` annonce le relais joint
+    let endpoint = relays
+        .apply(Endpoint::builder(presets::N0))
         .secret_key(identity("key")?)
         .alpns(vec![ALPN.to_vec()])
         .bind()
@@ -73,13 +83,16 @@ pub async fn run(port: u16) -> Result<()> {
         let endpoint = endpoint.clone();
         let ticket_file = data_dir()?.join("ticket");
         async move {
+            // Joint quand un relais a répondu : avec un relais injoignable, l'attente dure aussi
             endpoint.online().await;
-            let ticket = EndpointTicket::new(endpoint.addr()).to_string();
+            let address = endpoint.addr();
+            let joined: Vec<String> = address.relay_urls().map(ToString::to_string).collect();
+            let ticket = EndpointTicket::new(address).to_string();
             // Le ticket dit où joindre la machine ; il ne donne aucun droit sans appairage
             if let Err(error) = write_private(&ticket_file, ticket.as_bytes()) {
                 println!("ticket non enregistré : {error:#}");
             }
-            println!("réseau joint, écrans attendus");
+            println!("réseau joint par {}, écrans attendus", joined.join(", "));
             let _ = ticket_ready.send(Some(ticket));
             // La tâche reste en vie : sa fin ne doit pas arrêter le démon
             std::future::pending::<()>().await
@@ -163,7 +176,7 @@ async fn sessions(State(app): State<Arc<App>>) -> Json<Snapshot> {
 async fn pair(State(app): State<Arc<App>>) -> Json<Value> {
     let Some(ticket) = ticket(app.ticket.clone(), TICKET_PATIENCE).await else {
         return Json(json!({
-            "error": "le démon n'a pas encore joint le réseau (machine hors ligne ?) : réessayer une fois la connexion revenue"
+            "error": "le démon n'a pas encore joint le réseau (machine hors ligne, ou relais injoignable ?) : réessayer une fois la connexion revenue"
         }));
     };
     match app.devices.lock().unwrap().new_code() {

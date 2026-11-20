@@ -13,11 +13,14 @@
 
 use std::str::FromStr;
 
+mod relays;
+
 use iroh::{
     Endpoint, SecretKey,
     endpoint::{Connection, RecvStream, presets},
 };
 use iroh_tickets::endpoint::EndpointTicket;
+pub use relays::{BadRelay, Relays};
 use tallylight_core::protocol::{ALPN, Hello, Welcome};
 pub use tallylight_core::{Session, Snapshot, State};
 use tokio::io::{AsyncBufReadExt, BufReader, Lines};
@@ -67,8 +70,21 @@ pub struct Screen {
 }
 
 impl Screen {
+    /// Écran qui passe par les relais publics de n0, réservés au développement : voir
+    /// [`Screen::with_relays`] pour indiquer les siens.
     pub async fn new(key: [u8; 32], name: impl Into<String>) -> Result<Self, Error> {
-        let endpoint = Endpoint::builder(presets::N0)
+        Self::with_relays(key, name, &Relays::default()).await
+    }
+
+    /// Écran qui utilise les relais donnés. Une machine se joint de toute façon par le relais
+    /// annoncé dans son ticket ; celui de l'écran sert à ses propres échanges avec le réseau.
+    pub async fn with_relays(
+        key: [u8; 32],
+        name: impl Into<String>,
+        relays: &Relays,
+    ) -> Result<Self, Error> {
+        let endpoint = relays
+            .apply(Endpoint::builder(presets::N0))
             .secret_key(SecretKey::from_bytes(&key))
             .bind()
             .await

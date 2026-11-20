@@ -12,7 +12,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use tallylight_client::{Error, Screen};
+use tallylight_client::{Error, Relays, Screen};
 use tokio::{runtime::Runtime, sync::OnceCell, task::JoinHandle};
 
 uniffi::setup_scaffolding!();
@@ -95,32 +95,53 @@ struct Running {
     screen: Arc<OnceCell<Arc<Screen>>>,
 }
 
+/// Réglage refusé à la création de [`Tallylight`].
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum ConfigError {
+    /// Relais mal écrit ; `reason` dit pourquoi, en français.
+    #[error("{reason}")]
+    BadRelay { reason: String },
+}
+
 #[derive(uniffi::Object)]
 pub struct Tallylight {
     runtime: Runtime,
     data_dir: PathBuf,
     name: String,
+    relays: Relays,
     running: Mutex<Running>,
 }
 
 #[uniffi::export]
 impl Tallylight {
     /// `data_dir` : dossier privé de l'application ; `name` : nom de l'écran, montré sur les machines.
+    /// Passe par les relais publics de l'éditeur d'iroh, réservés au développement : voir
+    /// [`Tallylight::with_relay`].
     #[uniffi::constructor]
     pub fn new(data_dir: String, name: String) -> Arc<Self> {
-        let data_dir = PathBuf::from(data_dir);
-        let _ = std::fs::create_dir_all(&data_dir);
-        migrate(&data_dir);
-        Arc::new(Self {
-            runtime: tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(2)
-                .enable_all()
-                .build()
-                .expect("démarrage du moteur asynchrone"),
-            data_dir,
-            name,
-            running: Mutex::new(Running::default()),
-        })
+        Self::create(data_dir, name, Relays::default())
+    }
+
+    /// Comme [`Tallylight::new`], avec ses propres relais iroh. `relay` : une ou plusieurs adresses
+    /// `https://…` séparées par des virgules, ou `n0` pour les relais publics (comme `new`).
+    /// Une machine reste jointe par le relais annoncé dans sa chaîne d'appairage.
+    #[uniffi::constructor]
+    pub fn with_relay(
+        data_dir: String,
+        name: String,
+        relay: String,
+    ) -> Result<Arc<Self>, ConfigError> {
+        let relays = relay
+            .parse()
+            .map_err(|error: tallylight_client::BadRelay| ConfigError::BadRelay {
+                reason: error.to_string(),
+            })?;
+        Ok(Self::create(data_dir, name, relays))
+    }
+
+    /// Relais utilisés par l'écran, sous la forme acceptée par [`Tallylight::with_relay`].
+    pub fn relay(&self) -> String {
+        self.relays.to_string()
     }
 
     /// Nombre de machines appairées depuis cet écran.
@@ -186,6 +207,23 @@ impl Tallylight {
 }
 
 impl Tallylight {
+    fn create(data_dir: String, name: String, relays: Relays) -> Arc<Self> {
+        let data_dir = PathBuf::from(data_dir);
+        let _ = std::fs::create_dir_all(&data_dir);
+        migrate(&data_dir);
+        Arc::new(Self {
+            runtime: tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+                .expect("démarrage du moteur asynchrone"),
+            data_dir,
+            name,
+            relays,
+            running: Mutex::new(Running::default()),
+        })
+    }
+
     /// Lance (ou relance) le suivi d'une machine. `target` : chaîne d'appairage ou ticket conservé.
     fn follow(&self, running: &mut Running, id: String, target: String) {
         let Some(listener) = running.listener.clone() else {
@@ -197,6 +235,7 @@ impl Tallylight {
         let follower = Follower {
             data_dir: self.data_dir.clone(),
             screen_name: self.name.clone(),
+            relays: self.relays.clone(),
             screen: running.screen.clone(),
             listener,
             machine: Machine {
@@ -220,6 +259,7 @@ impl Tallylight {
 struct Follower {
     data_dir: PathBuf,
     screen_name: String,
+    relays: Relays,
     screen: Arc<OnceCell<Arc<Screen>>>,
     listener: Arc<dyn Listener>,
     machine: Machine,
@@ -242,9 +282,13 @@ impl Follower {
             let screen = self
                 .screen
                 .get_or_try_init(|| async {
-                    Screen::new(screen_key(&self.data_dir), self.screen_name.clone())
-                        .await
-                        .map(Arc::new)
+                    Screen::with_relays(
+                        screen_key(&self.data_dir),
+                        self.screen_name.clone(),
+                        &self.relays,
+                    )
+                    .await
+                    .map(Arc::new)
                 })
                 .await
                 .cloned();
@@ -412,6 +456,29 @@ pub extern "system" fn Java_dev_tallylight_Android_init<'local>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_relay_is_chosen_at_creation() {
+        let dir = std::env::temp_dir().join(format!("tallylight-ffi-relay-{}", std::process::id()));
+        let dir_text = dir.to_string_lossy().to_string();
+        // Sans relais : ceux de n0, comme avant
+        assert_eq!(
+            Tallylight::new(dir_text.clone(), "écran".into()).relay(),
+            "n0"
+        );
+        let own = Tallylight::with_relay(
+            dir_text.clone(),
+            "écran".into(),
+            "https://relais.exemple.fr".into(),
+        )
+        .unwrap();
+        assert_eq!(own.relay(), "https://relais.exemple.fr/");
+        match Tallylight::with_relay(dir_text, "écran".into(), "relais.exemple.fr".into()) {
+            Err(ConfigError::BadRelay { reason }) => assert!(reason.contains("illisible")),
+            Ok(_) => panic!("relais mal écrit accepté"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn the_single_machine_of_early_versions_is_kept() {

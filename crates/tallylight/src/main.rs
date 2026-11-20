@@ -1,13 +1,16 @@
 //! tallylight : suit les sessions des agents de code d'une machine et diffuse leur état aux écrans appairés.
 //!
-//!     tallylight daemon [--port N]   # reçoit les hooks, tient l'état, sert les écrans appairés
-//!     tallylight watch [appairage]   # affiche l'état ; sans argument, celui de cette machine
+//!     tallylight daemon [--port N] [--relay R]   # reçoit les hooks, tient l'état, sert les écrans
+//!     tallylight watch [--relay R] [appairage]   # affiche l'état ; sans argument, celui de cette machine
 //!     tallylight pair                # affiche un QR et une chaîne d'appairage pour un nouvel écran
 //!     tallylight devices             # liste les écrans appairés
 //!     tallylight unpair <identité>   # retire un écran (début de son identité)
-//!     tallylight install             # branche Claude Code sur le démon et le lance en permanence
+//!     tallylight install [--no-service] [--relay R]  # branche Claude Code sur le démon, lancé en permanence
 //!     tallylight uninstall           # retire les hooks et le service
 //!     tallylight hooks [--port N]    # affiche les hooks, pour les ajouter à la main
+//!
+//! `R` : relais iroh, `n0` (relais publics de l'éditeur d'iroh, le défaut) ou une ou plusieurs
+//! adresses `https://…` séparées par des virgules. Sans `--relay`, `TALLYLIGHT_RELAY` s'applique.
 
 mod claude_local;
 mod daemon;
@@ -25,32 +28,115 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use iroh::SecretKey;
+use tallylight_client::Relays;
 
 /// Port local où le démon reçoit les hooks et les commandes.
 pub const DEFAULT_PORT: u16 = 47700;
+
+/// Variable d'environnement qui choisit les relais quand `--relay` n'est pas donné.
+pub const RELAY_ENV: &str = "TALLYLIGHT_RELAY";
+
+const USAGE: &str = "usage : tallylight daemon [--port N] [--relay R] | watch [--relay R] [appairage] | pair | devices | unpair <identité> | install [--no-service] [--relay R] | uninstall | hooks [--port N]";
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
-    match args.as_slice() {
-        ["daemon", rest @ ..] => daemon::run(port(rest)?).await,
-        ["watch"] => watch::run(None).await,
-        ["watch", pairing] => watch::run(Some(pairing)).await,
-        ["pair"] => local::pair().await,
-        ["devices"] => local::devices().await,
-        ["unpair", prefix] => local::unpair(prefix).await,
-        ["install"] => install::install(true),
-        ["install", "--no-service"] => install::install(false),
-        ["uninstall"] => install::uninstall(),
-        ["hooks", rest @ ..] => {
-            println!("{}", hooks::claude_settings(port(rest)?));
+    let Some((&command, rest)) = args.split_first() else {
+        bail!(USAGE);
+    };
+    match command {
+        "daemon" => {
+            let options = Options::parse(rest, &["--port", "--relay"], 0)?;
+            daemon::run(options.port(), options.relays()?).await
+        }
+        "watch" => {
+            let options = Options::parse(rest, &["--relay"], 1)?;
+            watch::run(options.free.first().copied(), &options.relays()?).await
+        }
+        "pair" if rest.is_empty() => local::pair().await,
+        "devices" if rest.is_empty() => local::devices().await,
+        "unpair" if rest.len() == 1 => local::unpair(rest[0]).await,
+        "install" => {
+            let options = Options::parse(rest, &["--no-service", "--relay"], 0)?;
+            install::install(!options.no_service, options.relay_choice()?)
+        }
+        "uninstall" if rest.is_empty() => install::uninstall(),
+        "hooks" => {
+            let options = Options::parse(rest, &["--port"], 0)?;
+            println!("{}", hooks::claude_settings(options.port()));
             Ok(())
         }
-        _ => bail!(
-            "usage : tallylight daemon [--port N] | watch [appairage] | pair | devices | unpair <identité> | install [--no-service] | uninstall | hooks [--port N]"
-        ),
+        _ => bail!(USAGE),
     }
+}
+
+/// Options d'une commande, dans n'importe quel ordre.
+#[derive(Debug, Default, PartialEq)]
+struct Options<'a> {
+    port: Option<u16>,
+    relay: Option<&'a str>,
+    no_service: bool,
+    /// Arguments sans tiret (la chaîne d'appairage de `watch`).
+    free: Vec<&'a str>,
+}
+
+impl<'a> Options<'a> {
+    /// `allowed` : options acceptées par la commande ; `max_free` : arguments libres permis.
+    fn parse(args: &[&'a str], allowed: &[&str], max_free: usize) -> Result<Self> {
+        let mut options = Self::default();
+        let mut args = args.iter().copied();
+        while let Some(arg) = args.next() {
+            if !arg.starts_with("--") {
+                options.free.push(arg);
+                continue;
+            }
+            if !allowed.contains(&arg) {
+                bail!("option inconnue : {arg}\n{USAGE}");
+            }
+            let mut value = || {
+                args.next()
+                    .with_context(|| format!("{arg} attend une valeur"))
+            };
+            match arg {
+                "--port" => options.port = Some(value()?.parse().context("port invalide")?),
+                "--relay" => options.relay = Some(value()?),
+                "--no-service" => options.no_service = true,
+                _ => bail!("option {arg} non traitée"),
+            }
+        }
+        if options.free.len() > max_free {
+            bail!("argument en trop : {}\n{USAGE}", options.free.join(" "));
+        }
+        Ok(options)
+    }
+
+    fn port(&self) -> u16 {
+        self.port.unwrap_or_else(local_port)
+    }
+
+    /// Relais demandés explicitement, par l'option ou par l'environnement ; `None` sinon.
+    fn relay_choice(&self) -> Result<Option<Relays>> {
+        let env = std::env::var(RELAY_ENV).ok();
+        relay_choice(self.relay, env.as_deref())
+    }
+
+    /// Relais à utiliser : ceux demandés, sinon les relais publics de n0.
+    fn relays(&self) -> Result<Relays> {
+        Ok(self.relay_choice()?.unwrap_or_default())
+    }
+}
+
+/// L'option l'emporte sur la variable d'environnement ; une variable vide compte pour absente.
+fn relay_choice(option: Option<&str>, env: Option<&str>) -> Result<Option<Relays>> {
+    let (text, source) = match (option, env) {
+        (Some(text), _) => (text, "--relay"),
+        (None, Some(text)) if !text.trim().is_empty() => (text, RELAY_ENV),
+        _ => return Ok(None),
+    };
+    text.parse()
+        .map(Some)
+        .with_context(|| format!("{source} : « {text} »"))
 }
 
 /// Port du démon de cette machine ; `TALLYLIGHT_PORT` le remplace (essais, second démon).
@@ -59,14 +145,6 @@ pub fn local_port() -> u16 {
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(DEFAULT_PORT)
-}
-
-fn port(args: &[&str]) -> Result<u16> {
-    match args {
-        [] => Ok(local_port()),
-        ["--port", value] => value.parse().context("port invalide"),
-        _ => bail!("option inconnue : {}", args.join(" ")),
-    }
 }
 
 /// Dossier de configuration de Claude Code.
@@ -134,4 +212,61 @@ pub fn now() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_secs())
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn options_are_read_in_any_order() {
+        let daemon = ["--port", "--relay"];
+        let options = Options::parse(
+            &["--relay", "https://r.example", "--port", "4242"],
+            &daemon,
+            0,
+        )
+        .unwrap();
+        assert_eq!(options.port, Some(4242));
+        assert_eq!(options.relay, Some("https://r.example"));
+
+        let options = Options::parse(&["ticket#code", "--relay", "n0"], &["--relay"], 1).unwrap();
+        assert_eq!(options.free, ["ticket#code"]);
+        assert_eq!(options.relay, Some("n0"));
+
+        let options = Options::parse(&["--no-service"], &["--no-service", "--relay"], 0).unwrap();
+        assert!(options.no_service && options.relay.is_none());
+    }
+
+    #[test]
+    fn unknown_missing_or_extra_arguments_are_refused() {
+        assert!(Options::parse(&["--relay"], &["--relay"], 0).is_err());
+        assert!(Options::parse(&["--relay", "x"], &["--port"], 0).is_err());
+        assert!(Options::parse(&["--port", "abc"], &["--port"], 0).is_err());
+        assert!(Options::parse(&["a", "b"], &["--relay"], 1).is_err());
+        assert!(Options::parse(&["a"], &["--port"], 0).is_err());
+    }
+
+    #[test]
+    fn the_option_wins_over_the_environment() {
+        let own = |text: &str| Some(text.parse::<Relays>().unwrap());
+        assert_eq!(relay_choice(None, None).unwrap(), None);
+        // Variable vide : comme absente
+        assert_eq!(relay_choice(None, Some(" ")).unwrap(), None);
+        assert_eq!(
+            relay_choice(None, Some("https://env.example")).unwrap(),
+            own("https://env.example")
+        );
+        assert_eq!(
+            relay_choice(Some("https://option.example"), Some("https://env.example")).unwrap(),
+            own("https://option.example")
+        );
+        // `--relay n0` revient explicitement aux relais publics, malgré l'environnement
+        assert_eq!(
+            relay_choice(Some("n0"), Some("https://env.example")).unwrap(),
+            Some(Relays::n0())
+        );
+        let error = relay_choice(None, Some("pas une adresse")).unwrap_err();
+        assert!(format!("{error:#}").contains(RELAY_ENV));
+    }
 }

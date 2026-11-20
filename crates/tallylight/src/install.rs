@@ -13,6 +13,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
+use tallylight_client::Relays;
 
 use crate::{claude_dir, hooks, local_port};
 
@@ -21,7 +22,9 @@ const SERVICE: &str = "tallylight";
 #[cfg(target_os = "macos")]
 const LAUNCH_LABEL: &str = "dev.tallylight.daemon";
 
-pub fn install(with_service: bool) -> Result<()> {
+/// `relay` : relais demandés par `--relay` ou `TALLYLIGHT_RELAY` ; sans demande, le service garde
+/// ceux qu'il avait (une mise à jour par `install` ne doit pas les perdre), sinon ceux de n0.
+pub fn install(with_service: bool, relay: Option<Relays>) -> Result<()> {
     let settings = settings_path()?;
     let changed = edit_settings(&settings, |value| hooks::add_claude(value, local_port()))?;
     println!(
@@ -34,10 +37,89 @@ pub fn install(with_service: bool) -> Result<()> {
         settings.display()
     );
     if with_service {
-        install_service()?;
+        let previous = service_file()
+            .ok()
+            .and_then(|path| std::fs::read_to_string(path).ok())
+            .and_then(|text| relay_in_service(&text));
+        let relays = relay.or(previous).unwrap_or_default();
+        if relays.is_n0() {
+            println!(
+                "relais : n0, publics et réservés au développement (--relay <adresse> pour le sien)"
+            );
+        } else {
+            println!("relais : {relays}");
+        }
+        install_service(&daemon_args(&relays))?;
+    } else if relay.is_some() {
+        println!("relais : sans effet sans le service (--no-service)");
     }
     println!("\nPour suivre cette machine depuis un autre écran : tallylight pair");
     Ok(())
+}
+
+/// Arguments du démon lancé par le service. Les relais de n0 n'ajoutent rien : le service reste
+/// alors identique à celui des versions précédentes.
+fn daemon_args(relays: &Relays) -> Vec<String> {
+    let mut args = vec!["daemon".to_string()];
+    if !relays.is_n0() {
+        // Forme canonique, vérifiée à la lecture : schéma, hôte et port seulement, donc aucun
+        // caractère à protéger dans une ligne systemd ni dans un plist
+        args.extend(["--relay".to_string(), relays.to_string()]);
+    }
+    args
+}
+
+/// Relais inscrits dans un fichier de service écrit par `install` (unité systemd ou plist).
+fn relay_in_service(text: &str) -> Option<Relays> {
+    let text = text.replace("<string>", " ").replace("</string>", " ");
+    let mut words = text.split_whitespace();
+    words.find(|word| *word == "--relay")?;
+    words.next()?.parse().ok()
+}
+
+/// Échappe un texte pour un plist (XML).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn xml(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+/// Unité systemd utilisateur du démon.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn systemd_unit(exe: &str, args: &[String]) -> String {
+    format!(
+        "[Unit]\nDescription=tallylight : suivi des sessions d'agents de code\nAfter=network-online.target\n\n\
+         [Service]\nExecStart={exe} {}\nRestart=on-failure\nRestartSec=5\nMemoryMax=200M\n\n\
+         [Install]\nWantedBy=default.target\n",
+        args.join(" ")
+    )
+}
+
+/// Agent de lancement macOS du démon.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn launch_agent_plist(label: &str, exe: &str, args: &[String], log: &str) -> String {
+    let arguments: String = std::iter::once(exe)
+        .chain(args.iter().map(String::as_str))
+        .map(|arg| format!("<string>{}</string>", xml(arg)))
+        .collect();
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>{label}</string>
+    <key>ProgramArguments</key>
+    <array>{arguments}</array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>StandardOutPath</key><string>{log}</string>
+    <key>StandardErrorPath</key><string>{log}</string>
+</dict>
+</plist>
+"#,
+        log = xml(log)
+    )
 }
 
 pub fn uninstall() -> Result<()> {
@@ -131,18 +213,22 @@ fn report_service(journal: &str) {
 }
 
 #[cfg(target_os = "linux")]
-fn install_service() -> Result<()> {
+fn service_file() -> Result<PathBuf> {
+    Ok(
+        PathBuf::from(std::env::var_os("HOME").context("HOME absent")?)
+            .join(".config/systemd/user")
+            .join(format!("{SERVICE}.service")),
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn install_service(args: &[String]) -> Result<()> {
     let exe = std::env::current_exe()?;
-    let dir = PathBuf::from(std::env::var_os("HOME").context("HOME absent")?)
-        .join(".config/systemd/user");
-    std::fs::create_dir_all(&dir)?;
-    let unit = format!(
-        "[Unit]\nDescription=tallylight : suivi des sessions d'agents de code\nAfter=network-online.target\n\n\
-         [Service]\nExecStart={} daemon\nRestart=on-failure\nRestartSec=5\nMemoryMax=200M\n\n\
-         [Install]\nWantedBy=default.target\n",
-        exe.display()
-    );
-    std::fs::write(dir.join(format!("{SERVICE}.service")), unit)?;
+    let unit = service_file()?;
+    if let Some(dir) = unit.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(&unit, systemd_unit(&exe.display().to_string(), args))?;
     run("systemctl", &["--user", "daemon-reload"])?;
     run("systemctl", &["--user", "enable", "--now", SERVICE])?;
     run("systemctl", &["--user", "restart", SERVICE])?;
@@ -152,9 +238,7 @@ fn install_service() -> Result<()> {
 
 #[cfg(target_os = "linux")]
 fn uninstall_service() -> Result<()> {
-    let unit = PathBuf::from(std::env::var_os("HOME").context("HOME absent")?)
-        .join(".config/systemd/user")
-        .join(format!("{SERVICE}.service"));
+    let unit = service_file()?;
     if unit.exists() {
         let _ = run("systemctl", &["--user", "disable", "--now", SERVICE]);
         std::fs::remove_file(unit)?;
@@ -165,7 +249,7 @@ fn uninstall_service() -> Result<()> {
 }
 
 #[cfg(target_os = "macos")]
-fn launch_agent() -> Result<PathBuf> {
+fn service_file() -> Result<PathBuf> {
     Ok(
         PathBuf::from(std::env::var_os("HOME").context("HOME absent")?)
             .join("Library/LaunchAgents")
@@ -174,33 +258,21 @@ fn launch_agent() -> Result<PathBuf> {
 }
 
 #[cfg(target_os = "macos")]
-fn install_service() -> Result<()> {
+fn install_service(args: &[String]) -> Result<()> {
     let exe = std::env::current_exe()?;
     let home = PathBuf::from(std::env::var_os("HOME").context("HOME absent")?);
     let log = home.join("Library/Logs/tallylight.log");
-    let plist = launch_agent()?;
+    let plist = service_file()?;
     if let Some(parent) = plist.parent() {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(
         &plist,
-        format!(
-            r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key><string>{LAUNCH_LABEL}</string>
-    <key>ProgramArguments</key>
-    <array><string>{}</string><string>daemon</string></array>
-    <key>RunAtLoad</key><true/>
-    <key>KeepAlive</key><true/>
-    <key>StandardOutPath</key><string>{log}</string>
-    <key>StandardErrorPath</key><string>{log}</string>
-</dict>
-</plist>
-"#,
-            exe.display(),
-            log = log.display()
+        launch_agent_plist(
+            LAUNCH_LABEL,
+            &exe.display().to_string(),
+            args,
+            &log.display().to_string(),
         ),
     )?;
     let domain = format!("gui/{}", unsafe { libc::getuid() });
@@ -218,7 +290,7 @@ fn install_service() -> Result<()> {
 
 #[cfg(target_os = "macos")]
 fn uninstall_service() -> Result<()> {
-    let plist = launch_agent()?;
+    let plist = service_file()?;
     if plist.exists() {
         let domain = format!("gui/{}", unsafe { libc::getuid() });
         let _ = Command::new("launchctl")
@@ -231,9 +303,15 @@ fn uninstall_service() -> Result<()> {
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn install_service() -> Result<()> {
+fn service_file() -> Result<PathBuf> {
+    bail!("service non géré sur ce système")
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn install_service(args: &[String]) -> Result<()> {
     println!(
-        "service : non géré sur ce système ; lancer `{SERVICE} daemon` au démarrage de la session"
+        "service : non géré sur ce système ; lancer `{SERVICE} {}` au démarrage de la session",
+        args.join(" ")
     );
     Ok(())
 }
@@ -287,6 +365,72 @@ mod tests {
         });
         assert!(wait_for_daemon(port, Duration::from_secs(10)));
         late.join().unwrap();
+    }
+
+    #[test]
+    fn the_service_is_unchanged_with_the_public_relays() {
+        let args = daemon_args(&Relays::n0());
+        assert_eq!(args, ["daemon"]);
+        // Mêmes fichiers qu'avant l'option : une mise à jour ne touche pas un service existant
+        assert!(
+            systemd_unit("/bin/tallylight", &args).contains("\nExecStart=/bin/tallylight daemon\n")
+        );
+        assert!(
+            launch_agent_plist("dev.tallylight.daemon", "/bin/tallylight", &args, "/l.log")
+                .contains("<array><string>/bin/tallylight</string><string>daemon</string></array>")
+        );
+        assert_eq!(
+            relay_in_service(&systemd_unit("/bin/tallylight", &args)),
+            None
+        );
+    }
+
+    #[test]
+    fn the_relay_is_kept_in_both_kinds_of_service() {
+        let relays: Relays = "https://relais.exemple.fr,http://127.0.0.1:3340"
+            .parse()
+            .unwrap();
+        let args = daemon_args(&relays);
+        assert_eq!(
+            args,
+            [
+                "daemon",
+                "--relay",
+                "https://relais.exemple.fr/,http://127.0.0.1:3340/"
+            ]
+        );
+
+        let unit = systemd_unit("/home/moi/.local/bin/tallylight", &args);
+        assert!(unit.contains(
+            "\nExecStart=/home/moi/.local/bin/tallylight daemon --relay https://relais.exemple.fr/,http://127.0.0.1:3340/\n"
+        ));
+        assert_eq!(relay_in_service(&unit), Some(relays.clone()));
+
+        let plist = launch_agent_plist(
+            "dev.tallylight.daemon",
+            "/Users/moi/A&B/tallylight",
+            &args,
+            "/Users/moi/Library/Logs/tallylight.log",
+        );
+        assert!(plist.contains(
+            "<string>daemon</string><string>--relay</string><string>https://relais.exemple.fr/,http://127.0.0.1:3340/</string>"
+        ));
+        // Un chemin avec un caractère réservé reste un XML valide
+        assert!(plist.contains("<string>/Users/moi/A&amp;B/tallylight</string>"));
+        assert_eq!(relay_in_service(&plist), Some(relays));
+    }
+
+    #[test]
+    fn a_service_without_a_readable_relay_falls_back_to_none() {
+        assert_eq!(relay_in_service(""), None);
+        assert_eq!(
+            relay_in_service("ExecStart=/bin/tallylight daemon --relay"),
+            None
+        );
+        assert_eq!(
+            relay_in_service("ExecStart=/bin/tallylight daemon --relay pas-une-adresse"),
+            None
+        );
     }
 
     #[test]

@@ -50,6 +50,16 @@ Vérifié le 2026-11-18 sur un démon de test privé de réseau (`sandbox-exec`)
 Écarté : borner l'attente du réseau puis continuer sans ticket (l'appairage resterait cassé jusqu'au redémarrage) ; garder l'ordre et ne faire patienter que `install` (ne règle pas le cas hors ligne).
 Limite : le ticket est calculé une fois, à la première connexion au réseau, comme avant.
 
+## D11 — Relais iroh au choix, n0 par défaut (2026-11-20)
+D4 réserve les relais publics de n0 au développement : chacun doit pouvoir indiquer le sien. Le démon, `tallylight watch` et la bibliothèque d'écran acceptent `--relay` (ou `TALLYLIGHT_RELAY`, ou `Tallylight.withRelay` côté application) : `n0` ou une liste d'adresses `https://…`. Sans réglage, rien ne change : n0, et un service installé identique à celui des versions précédentes.
+- La machine annonce le relais joint dans son ticket : un écran la rejoint par ce relais, quel que soit le sien. Pas besoin d'aligner les réglages des deux côtés.
+- Adresse limitée au schéma, à l'hôte et au port : elle finit dans le ticket montré aux écrans, donc ni identifiant, ni jeton, ni chemin.
+- `install --relay` inscrit le choix dans le service ; une réinstallation sans `--relay` relit celui du service plutôt que de revenir à n0 en silence.
+- `http://` est accepté pour un relais d'essai local.
+Vérifié le 2026-11-20 sur le Mac avec `iroh-relay --dev` (1.4.1) : démon et écran terminal réglés sur `http://127.0.0.1:3340`, ticket joint par ce relais, sessions reçues, puis lien direct. Avec un relais injoignable, le port local reste ouvert (D10) et `pair` explique que le relais ne répond pas.
+Écarté : un relais de projet tenu par tallylight (serveur à payer et à surveiller, contraire à « sans serveur ») ; un réglage dans un fichier de configuration (pas d'autre réglage persistant aujourd'hui, l'option et la variable suffisent).
+Limite : pas encore de relais hébergé à recommander ni de guide d'installation d'`iroh-relay`.
+
 ## Questions ouvertes
 - Envoyer un message à une session Claude Code déjà ouverte (conditionne la voix) : Remote Control sans API, channels en aperçu, socket de boîte de réception au format non documenté. À valider par un essai.
 - Comportement de Claude Code quand un hook `PermissionRequest` dépasse son délai.

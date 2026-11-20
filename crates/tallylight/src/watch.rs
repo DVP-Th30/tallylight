@@ -1,21 +1,22 @@
 //! Premier écran : l'état des sessions dans le terminal, redessiné à chaque changement.
 
 use anyhow::{Result, bail};
-use tallylight_client::{Screen, Session, Snapshot, State};
+use tallylight_client::{Relays, Screen, Session, Snapshot, State};
 
 use crate::{data_dir, identity, local, machine_name, now, write_private};
 
 /// `pairing` : chaîne donnée par `tallylight pair` (« ticket#code »), ou ticket seul d'une machine
 /// déjà appairée. Sans argument, on suit cette machine : le démon local fournit lui-même l'appairage.
-pub async fn run(pairing: Option<&str>) -> Result<()> {
+pub async fn run(pairing: Option<&str>, relays: &Relays) -> Result<()> {
     let pairing = match pairing {
         Some(pairing) => pairing.to_string(),
         None => local::pairing().await?,
     };
     // L'écran garde son identité : une fois appairé, il est reconnu sans code
-    let screen = Screen::new(
+    let screen = Screen::with_relays(
         identity("screen-key")?.to_bytes(),
         format!("terminal@{}", machine_name()),
+        relays,
     )
     .await?;
     let mut watch = match screen.watch(&pairing).await {
