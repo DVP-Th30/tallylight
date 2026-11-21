@@ -7,6 +7,7 @@
 //!     tallylight unpair <identité>   # retire un écran (début de son identité)
 //!     tallylight install [--no-service] [--relay R]  # branche Claude Code sur le démon, lancé en permanence
 //!     tallylight uninstall           # retire les hooks et le service
+//!     tallylight name [nom]          # nom de la machine sur les écrans (« Mac » plutôt que le nom système)
 //!     tallylight hooks [--port N]    # affiche les hooks, pour les ajouter à la main
 //!
 //! `R` : relais iroh, `n0` (relais publics de l'éditeur d'iroh, le défaut) ou une ou plusieurs
@@ -37,7 +38,7 @@ pub const DEFAULT_PORT: u16 = 47700;
 /// Variable d'environnement qui choisit les relais quand `--relay` n'est pas donné.
 pub const RELAY_ENV: &str = "TALLYLIGHT_RELAY";
 
-const USAGE: &str = "usage : tallylight daemon [--port N] [--relay R] | watch [--relay R] [appairage] | pair | devices | unpair <identité> | install [--no-service] [--relay R] | uninstall | hooks [--port N]";
+const USAGE: &str = "usage : tallylight daemon [--port N] [--relay R] | watch [--relay R] [appairage] | pair | devices | unpair <identité> | install [--no-service] [--relay R] | uninstall | name [nom | --reset] | hooks [--port N]";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -63,6 +64,7 @@ async fn main() -> Result<()> {
             install::install(!options.no_service, options.relay_choice()?)
         }
         "uninstall" if rest.is_empty() => install::uninstall(),
+        "name" => name(rest).await,
         "hooks" => {
             let options = Options::parse(rest, &["--port"], 0)?;
             println!("{}", hooks::claude_settings(options.port()));
@@ -156,8 +158,19 @@ pub fn claude_dir() -> Result<PathBuf> {
     })
 }
 
-/// Nom de la machine, tel qu'un écran l'affiche.
+/// Nom de la machine, tel qu'un écran l'affiche : celui choisi par `tallylight name`, sinon le nom
+/// système (« serveurdvp », « Th30 »).
 pub fn machine_name() -> String {
+    chosen_name().unwrap_or_else(system_name)
+}
+
+/// Nom choisi par `tallylight name`, s'il y en a un.
+fn chosen_name() -> Option<String> {
+    let name = std::fs::read_to_string(data_dir().ok()?.join("name")).ok()?;
+    clean_name(&name)
+}
+
+fn system_name() -> String {
     std::fs::read_to_string("/etc/hostname")
         .ok()
         .or_else(|| {
@@ -168,6 +181,55 @@ pub fn machine_name() -> String {
         .map(|name| name.trim().trim_end_matches(".local").to_string())
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "machine".to_string())
+}
+
+/// Un nom affichable : une ligne, sans caractère de contrôle, 40 caractères au plus.
+fn clean_name(name: &str) -> Option<String> {
+    let name: String = name
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(40)
+        .collect();
+    let name = name.trim().to_string();
+    (!name.is_empty()).then_some(name)
+}
+
+/// `tallylight name` : affiche le nom ; `name <nom>` le choisit ; `name --reset` revient au nom système.
+/// Le démon le reprend aussitôt, sans redémarrer.
+async fn name(args: &[&str]) -> Result<()> {
+    let path = data_dir()?.join("name");
+    match args {
+        [] => {
+            match chosen_name() {
+                Some(name) => println!("{name} (nom système : {})", system_name()),
+                None => println!(
+                    "{} (nom système ; `tallylight name <nom>` pour en choisir un)",
+                    system_name()
+                ),
+            }
+            return Ok(());
+        }
+        ["--reset"] => {
+            if path.exists() {
+                std::fs::remove_file(&path)?;
+            }
+        }
+        words => {
+            let Some(name) = clean_name(&words.join(" ")) else {
+                bail!("nom vide");
+            };
+            write_private(&path, name.as_bytes())?;
+        }
+    }
+    let name = machine_name();
+    match local::request("POST", "/name/reload").await {
+        Ok(_) => println!("nom de la machine : {name}"),
+        Err(_) => {
+            println!("nom de la machine : {name} (pris en compte au prochain lancement du démon)")
+        }
+    }
+    Ok(())
 }
 
 /// Dossier des données de la machine : identités réseau, ticket, appareils appairés.
@@ -238,6 +300,17 @@ pub fn now() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_chosen_name_is_one_short_clean_line() {
+        assert_eq!(clean_name("  Mac \n").as_deref(), Some("Mac"));
+        assert_eq!(
+            clean_name("Mac\tdu\u{7}salon").as_deref(),
+            Some("Macdusalon")
+        );
+        assert_eq!(clean_name(&"x".repeat(60)).map(|name| name.len()), Some(40));
+        assert_eq!(clean_name(" \n "), None);
+    }
 
     #[test]
     fn private_files_are_replaced_whole_and_stay_private() {

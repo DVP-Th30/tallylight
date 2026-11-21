@@ -25,7 +25,8 @@ const FORGET_AFTER: u64 = 12 * 3600;
 const GHOST_GRACE: u64 = 60;
 
 pub struct Store {
-    machine: String,
+    /// Nom de la machine, changé par `tallylight name` sans redémarrer.
+    machine: Mutex<String>,
     /// Fichier où les sessions sont conservées d'un lancement à l'autre.
     path: Option<PathBuf>,
     inner: Mutex<Inner>,
@@ -55,7 +56,7 @@ impl Store {
             sessions: sessions.values().cloned().collect(),
         });
         Self {
-            machine,
+            machine: Mutex::new(machine),
             path,
             inner: Mutex::new(Inner {
                 sessions,
@@ -183,9 +184,21 @@ impl Store {
             let _ = write_private(path, &bytes);
         }
         self.snapshot.send_replace(Snapshot {
-            machine: self.machine.clone(),
+            machine: self.machine.lock().unwrap().clone(),
             sessions,
         });
+    }
+
+    /// Change le nom de la machine et prévient les écrans.
+    pub fn rename(&self, name: String) {
+        let mut machine = self.machine.lock().unwrap();
+        if *machine == name {
+            return;
+        }
+        *machine = name.clone();
+        drop(machine);
+        self.snapshot
+            .send_modify(|snapshot| snapshot.machine = name);
     }
 
     pub fn snapshot(&self) -> Snapshot {

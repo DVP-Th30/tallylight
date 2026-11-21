@@ -104,6 +104,7 @@ pub async fn run(port: u16, relays: Relays) -> Result<()> {
         .route("/pair", post(pair))
         .route("/devices", get(devices))
         .route("/devices/{prefix}/remove", post(remove_device))
+        .route("/name/reload", post(reload_name))
         .with_state(app.clone());
 
     let screens = {
@@ -195,6 +196,13 @@ async fn ticket(mut ready: watch::Receiver<Option<String>>, patience: Duration) 
 
 async fn devices(State(app): State<Arc<App>>) -> Json<Vec<Device>> {
     Json(app.devices.lock().unwrap().list().to_vec())
+}
+
+/// Reprend le nom choisi par `tallylight name`.
+async fn reload_name(State(app): State<Arc<App>>) -> Json<Value> {
+    let name = machine_name();
+    app.store.rename(name.clone());
+    Json(json!({ "name": name }))
 }
 
 async fn remove_device(State(app): State<Arc<App>>, Path(prefix): Path<String>) -> Json<Value> {
