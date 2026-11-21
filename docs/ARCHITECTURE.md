@@ -31,7 +31,7 @@ Vérifié sous macOS le 2026-11-18 : agent de lancement, quatre sessions ouverte
 
 Vérifié le 2026-11-17 avec une vraie session (`claude -p --settings <fichier de hooks>`, outil Read) : l'écran a affiché au travail → au travail (Read) → fini, puis la session a disparu.
 
-Première application le 2026-11-17 : le launcher Android Encre (`DVP-Th30/DVPLauncher`) embarque `libtallylight_ffi.so`, s'est appairé avec serveurdvp et reçoit les états réels en connexion directe (journal seulement, pas encore d'interface).
+Première application le 2026-11-17 : le launcher Android Encre (`DVP-Th30/DVPLauncher`) embarque `libtallylight_ffi.so`, s'est appairé avec serveurdvp et reçoit les états réels en connexion directe. Depuis le 2026-11-19, son onglet « agent » les affiche : sessions rangées par état, ce que fait ou demande l'agent, plusieurs machines, signal d'un agent bloqué hors de l'onglet et lien vers la session dans l'app Claude (voir le `docs/ARCHITECTURE.md` d'Encre). Encre intègre encore la bibliothèque par son script `tools/tallylight.sh`, pas par l'AAR.
 
 Fiabilité de l'état (2026-11-18, décision D9) : les sessions sont conservées dans `sessions.json` et relues au démarrage ; `claude_local.rs` lit les fiches de session de Claude Code et `Store::reconcile` les rapproche toutes les 5 secondes (sessions déjà ouvertes, sessions mortes, sessions fantômes annoncées sans processus, interruptions, titre). Vérifié sur un démon de test : les trois sessions vivantes du serveur apparaissent sans aucun événement, avec leur titre, et une vraie demande d'autorisation (`PermissionRequest`) affiche « attend une réponse ».
 
