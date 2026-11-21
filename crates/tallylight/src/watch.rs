@@ -306,6 +306,7 @@ mod tests {
             detail: None,
             last_message: None,
             url: None,
+            model: None,
             updated_at,
         }
     }

@@ -64,6 +64,9 @@ pub struct Session {
     /// Adresse qui ouvre la session dans l'application de l'agent, si elle en a une.
     #[serde(default)]
     pub url: Option<String>,
+    /// Identifiant du dernier modèle qui a répondu (« claude-opus-5-5 ») ; voir [`model_label`].
+    #[serde(default)]
+    pub model: Option<String>,
     /// Dernier changement, en secondes depuis 1970.
     pub updated_at: u64,
 }
@@ -82,6 +85,45 @@ impl Session {
             .next()
             .filter(|name| !name.is_empty())
             .unwrap_or("/")
+    }
+}
+
+/// Nom lisible d'un modèle : « claude-opus-5-5 » donne « Opus 5.5 », « claude-fable-5-2 » donne
+/// « Fable 5.2 ». Les anciens identifiants à date (« claude-3-5-sonnet-20241022 ») perdent leur date.
+/// Un identifiant qui ne commence pas par « claude- » est rendu tel quel.
+pub fn model_label(id: &str) -> String {
+    let Some(rest) = id.strip_prefix("claude-") else {
+        return id.to_string();
+    };
+    let mut words: Vec<String> = Vec::new();
+    let mut version: Vec<&str> = Vec::new();
+    for part in rest.split('-') {
+        if part.is_empty() {
+            continue;
+        }
+        if part.chars().all(|c| c.is_ascii_digit()) {
+            // Une date (8 chiffres) n'est pas une version
+            if part.len() <= 2 {
+                version.push(part);
+            }
+        } else {
+            let mut chars = part.chars();
+            if let Some(first) = chars.next() {
+                words.push(first.to_uppercase().chain(chars).collect());
+            }
+        }
+    }
+    let mut label = words.join(" ");
+    if !version.is_empty() {
+        if !label.is_empty() {
+            label.push(' ');
+        }
+        label.push_str(&version.join("."));
+    }
+    if label.is_empty() {
+        id.to_string()
+    } else {
+        label
     }
 }
 
@@ -115,6 +157,17 @@ mod tests {
     }
 
     #[test]
+    fn model_ids_read_as_names() {
+        assert_eq!(model_label("claude-opus-5-5"), "Opus 5.5");
+        assert_eq!(model_label("claude-fable-5-2"), "Fable 5.2");
+        assert_eq!(model_label("claude-haiku-4-5-20251001"), "Haiku 4.5");
+        assert_eq!(model_label("claude-3-5-sonnet-20241022"), "Sonnet 3.5");
+        assert_eq!(model_label("claude-sonnet-4"), "Sonnet 4");
+        assert_eq!(model_label("gpt-5"), "gpt-5");
+        assert_eq!(model_label("claude-"), "claude-");
+    }
+
+    #[test]
     fn project_is_the_last_folder() {
         let mut session = Session {
             id: "s".into(),
@@ -126,6 +179,7 @@ mod tests {
             detail: None,
             last_message: None,
             url: None,
+            model: None,
             updated_at: 0,
         };
         assert_eq!(session.project(), "tallylight");

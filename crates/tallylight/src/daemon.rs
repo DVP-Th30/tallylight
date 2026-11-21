@@ -131,9 +131,11 @@ pub async fn run(port: u16, relays: Relays) -> Result<()> {
         let app = app.clone();
         async move {
             let mut tick = tokio::time::interval(Duration::from_secs(5));
+            let mut models = crate::transcript::ModelCache::default();
             loop {
                 tick.tick().await;
-                app.store.reconcile(&claude_local::read(), now());
+                let local = claude_local::read_with_models(&mut models);
+                app.store.reconcile(&local, now());
             }
         }
     };

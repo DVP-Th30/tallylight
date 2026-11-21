@@ -19,6 +19,7 @@ mod hooks;
 mod install;
 mod local;
 mod store;
+mod transcript;
 mod watch;
 
 use std::{

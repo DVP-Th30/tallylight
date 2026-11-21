@@ -70,6 +70,14 @@ Désormais :
 Écarté : une base SQLite (dépendance lourde pour quelques lignes de JSON).
 Remède immédiat appliqué : nouvel appairage d'Encre avec serveurdvp et le Mac par adb.
 
+## D13 — Le modèle, lu dans la transcription (2026-11-21)
+Demande : voir sur l'écran quel modèle utilise chaque agent. Ni les hooks ni la fiche de session (`~/.claude/sessions/<pid>.json`) ne le donnent ; la transcription si : chaque réponse de l'agent y porte `message.model`. Le démon lit donc la fin (256 Ko) de la transcription :
+- à chaque hook, par le `transcript_path` que Claude Code fournit ;
+- toutes les 5 s pour les sessions vivantes, au rapprochement des fiches (sessions ouvertes avant le démon, ou sans hooks), seulement si le fichier a changé. Chemin : `~/.claude/projects/<dossier>/<session>.jsonl`, où chaque caractère non alphanumérique du dossier devient `-` (vérifié sur les espaces et les points ; à défaut, le fichier de la session est cherché dans tous les dossiers de projets).
+Sont ignorés : les réponses des sous-agents (`isSidechain`) et les messages fabriqués par Claude Code (`<synthetic>`). Un changement de modèle en cours de session (`/model`) apparaît à la réponse suivante.
+Comme D9 : format interne de Claude Code, susceptible de changer ; une ligne illisible est ignorée et le modèle reste alors simplement inconnu. Rien d'autre que ce champ n'est lu ni envoyé.
+Écarté : demander le modèle à Claude Code (aucune interface pour cela) ; le déduire des réglages (`settings.json`), qui ne reflètent ni `/model` ni `--model`.
+
 ## Questions ouvertes
 - Envoyer un message à une session Claude Code déjà ouverte (conditionne la voix) : Remote Control sans API, channels en aperçu, socket de boîte de réception au format non documenté. À valider par un essai.
 - Comportement de Claude Code quand un hook `PermissionRequest` dépasse son délai.

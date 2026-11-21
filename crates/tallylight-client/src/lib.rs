@@ -22,7 +22,7 @@ use iroh::{
 use iroh_tickets::endpoint::EndpointTicket;
 pub use relays::{BadRelay, Relays};
 use tallylight_core::protocol::{ALPN, Hello, Welcome};
-pub use tallylight_core::{Session, Snapshot, State};
+pub use tallylight_core::{Session, Snapshot, State, model_label};
 use tokio::io::{AsyncBufReadExt, BufReader, Lines};
 
 #[derive(Debug, thiserror::Error)]

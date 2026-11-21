@@ -25,6 +25,9 @@ pub struct HookEvent {
     /// Présent quand le hook vient d'un sous-agent.
     #[serde(default)]
     pub agent_id: Option<String>,
+    /// Transcription de la session (JSONL), d'où l'on tire le modèle utilisé.
+    #[serde(default)]
+    pub transcript_path: Option<String>,
 }
 
 /// Effet d'un événement sur la session qui l'a émis.

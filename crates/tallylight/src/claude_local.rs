@@ -9,6 +9,8 @@ use std::{collections::HashMap, path::PathBuf};
 
 use serde::Deserialize;
 
+use crate::transcript::ModelCache;
+
 /// Une session vue par ses fiches locales (plusieurs processus peuvent porter la même session).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LocalSession {
@@ -23,6 +25,8 @@ pub struct LocalSession {
     pub status_at: u64,
     /// Adresse de la session dans l'application Claude, quand elle est suivie à distance.
     pub url: Option<String>,
+    /// Dernier modèle qui a répondu, lu dans la transcription (voir `transcript`).
+    pub model: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -44,6 +48,21 @@ struct Card {
     /// Identifiant de la session côté claude.ai (Remote Control), de la forme `session_…`.
     #[serde(default)]
     bridge_session_id: Option<String>,
+}
+
+/// Lit les fiches de la machine, regroupées par identifiant de session, avec le modèle de chaque
+/// session vivante.
+pub fn read_with_models(models: &mut ModelCache) -> HashMap<String, LocalSession> {
+    let mut sessions = read();
+    for (id, session) in sessions.iter_mut().filter(|(_, session)| session.alive) {
+        session.model = models.model(&session.cwd, id);
+    }
+    models.retain(|path| {
+        sessions.iter().any(|(id, session)| {
+            session.alive && path.file_stem().is_some_and(|stem| stem == id.as_str())
+        })
+    });
+    sessions
 }
 
 /// Lit les fiches de la machine, regroupées par identifiant de session.

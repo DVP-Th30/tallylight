@@ -67,6 +67,11 @@ impl Store {
 
     /// Applique un événement de Claude Code ; les écrans ne sont prévenus que si quelque chose change.
     pub fn apply_claude(&self, event: &HookEvent) {
+        // Lu hors du verrou : la transcription est un fichier, parfois gros
+        let model = event
+            .transcript_path
+            .as_deref()
+            .and_then(|path| crate::transcript::last_model(std::path::Path::new(path)));
         let mut inner = self.inner.lock().unwrap();
         let before = inner.sessions.clone();
         match change(event) {
@@ -83,6 +88,9 @@ impl Store {
                     .or_insert_with(|| blank(&event.session_id));
                 if !event.cwd.is_empty() {
                     session.cwd = event.cwd.clone();
+                }
+                if model.is_some() {
+                    session.model = model;
                 }
                 // Le dernier message vaut jusqu'au tour suivant
                 if let Some(message) = last_message(event) {
@@ -145,6 +153,9 @@ impl Store {
             });
             session.title = card.title.clone();
             session.url = card.url.clone();
+            if card.model.is_some() {
+                session.model = card.model.clone();
+            }
             let quiet_since = last_event.get(id).copied().unwrap_or(session.updated_at);
             let interrupted = session.state == Some(State::Working)
                 && card.status.as_deref() == Some("idle")
@@ -197,6 +208,7 @@ fn blank(id: &str) -> Session {
         detail: None,
         last_message: None,
         url: None,
+        model: None,
         updated_at: now(),
     }
 }
@@ -246,7 +258,46 @@ mod tests {
             status: Some(status.into()),
             status_at,
             url: None,
+            model: None,
         }
+    }
+
+    #[test]
+    fn the_model_comes_from_hooks_and_from_local_cards() {
+        let dir = std::env::temp_dir().join(format!("tallylight-model-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let transcript = dir.join("a.jsonl");
+        std::fs::write(
+            &transcript,
+            r#"{"type":"assistant","message":{"model":"claude-opus-5-5"}}"#,
+        )
+        .unwrap();
+        let store = Store::new("m".into(), None);
+        store.apply_claude(&event(&format!(
+            r#"{{"session_id":"a","hook_event_name":"Stop","cwd":"/p","transcript_path":"{}"}}"#,
+            transcript.display()
+        )));
+        assert_eq!(
+            store.snapshot().sessions[0].model.as_deref(),
+            Some("claude-opus-5-5")
+        );
+
+        // Une fiche sans modèle connu ne l'efface pas ; une fiche qui en a un le remplace
+        let mut card = local(true, "busy", 10);
+        let mut cards = HashMap::from([("a".to_string(), card.clone())]);
+        store.reconcile(&cards, 10);
+        assert_eq!(
+            store.snapshot().sessions[0].model.as_deref(),
+            Some("claude-opus-5-5")
+        );
+        card.model = Some("claude-fable-5-2".into());
+        cards.insert("a".into(), card);
+        store.reconcile(&cards, 11);
+        assert_eq!(
+            store.snapshot().sessions[0].model.as_deref(),
+            Some("claude-fable-5-2")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

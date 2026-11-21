@@ -39,6 +39,8 @@ pub struct Session {
     pub last_message: Option<String>,
     /// Adresse qui ouvre la session dans l'application de l'agent, si elle en a une.
     pub url: Option<String>,
+    /// Modèle qui a répondu en dernier, en clair (« Opus 5.5 »), s'il est connu.
+    pub model: Option<String>,
     /// Dernier changement, en secondes depuis 1970.
     pub updated_at: u64,
 }
@@ -466,6 +468,7 @@ fn convert(sessions: Vec<tallylight_client::Session>) -> Vec<Session> {
             detail: session.detail,
             last_message: session.last_message,
             url: session.url,
+            model: session.model.as_deref().map(tallylight_client::model_label),
             updated_at: session.updated_at,
         })
         .collect()
