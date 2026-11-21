@@ -195,14 +195,34 @@ pub fn identity(name: &str) -> Result<SecretKey> {
     Ok(key)
 }
 
-/// Écrit un fichier lisible par son seul propriétaire.
+/// Écrit un fichier réservé à l'utilisateur, d'un coup : fichier temporaire créé directement en
+/// 0600 (la clé n'est jamais lisible par d'autres, même un instant), puis renommage. Un démon
+/// arrêté en pleine écriture laisse donc l'ancien contenu intact, jamais un fichier tronqué.
 pub fn write_private(path: &Path, content: &[u8]) -> Result<()> {
-    std::fs::write(path, content)?;
+    let mut temporary = path.as_os_str().to_owned();
+    temporary.push(".tmp");
+    let temporary = PathBuf::from(temporary);
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
     }
+    let mut file = options
+        .open(&temporary)
+        .with_context(|| format!("écriture de {}", temporary.display()))?;
+    #[cfg(unix)]
+    {
+        // Fichier temporaire resté d'un essai précédent avec d'autres droits
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    std::io::Write::write_all(&mut file, content)?;
+    file.sync_all()?;
+    drop(file);
+    std::fs::rename(&temporary, path)
+        .with_context(|| format!("remplacement de {}", path.display()))?;
     Ok(())
 }
 
@@ -217,6 +237,25 @@ pub fn now() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn private_files_are_replaced_whole_and_stay_private() {
+        let dir = std::env::temp_dir().join(format!("tallylight-write-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("devices.json");
+        write_private(&path, b"premier contenu, plus long").unwrap();
+        write_private(&path, b"second").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"second");
+        assert!(!dir.join("devices.json.tmp").exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn options_are_read_in_any_order() {

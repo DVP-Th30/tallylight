@@ -60,6 +60,16 @@ Vérifié le 2026-11-20 sur le Mac avec `iroh-relay --dev` (1.4.1) : démon et �
 Écarté : un relais de projet tenu par tallylight (serveur à payer et à surveiller, contraire à « sans serveur ») ; un réglage dans un fichier de configuration (pas d'autre réglage persistant aujourd'hui, l'option et la variable suffisent).
 Limite : pas encore de relais hébergé à recommander ni de guide d'installation d'`iroh-relay`.
 
+## D12 — Fichiers d'état écrits d'un coup (2026-11-21)
+Constaté le 2026-11-21 : Encre affichait « aucune machine appairée ». Il ne s'était plus connecté depuis le 19 alors que son identité d'écran et son autorisation sur les deux machines étaient intactes ; seule la liste `machines.json` était perdue. Cause probable (le fichier n'était pas lisible pour le prouver, application non déboguable) : la bibliothèque réécrivait la liste à chaque reconnexion par un simple `write`, chaque machine depuis sa propre tâche, et un fichier illisible était lu comme une liste vide. Android tue souvent une application en arrière-plan : une écriture interrompue laisse un fichier tronqué, et deux tâches qui écrivent ensemble s'effacent l'une l'autre.
+Désormais :
+- écriture dans un fichier temporaire puis renommage, pour la liste des machines de la bibliothèque comme pour tous les fichiers du démon (`write_private` : clé, ticket, écrans autorisés, sessions). Une interruption laisse l'ancien contenu entier ;
+- lecture-modification-écriture de la liste sous un verrou, et pas d'écriture quand rien ne change ;
+- une liste illisible est mise de côté (`machines.json.illisible`) au lieu d'être écrasée ;
+- côté démon, le fichier temporaire est créé directement en 0600 : la clé secrète n'est plus lisible par d'autres utilisateurs, même un instant (avant : création avec les droits par défaut, puis `chmod`).
+Écarté : une base SQLite (dépendance lourde pour quelques lignes de JSON).
+Remède immédiat appliqué : nouvel appairage d'Encre avec serveurdvp et le Mac par adb.
+
 ## Questions ouvertes
 - Envoyer un message à une session Claude Code déjà ouverte (conditionne la voix) : Remote Control sans API, channels en aperçu, socket de boîte de réception au format non documenté. À valider par un essai.
 - Comportement de Claude Code quand un hook `PermissionRequest` dépasse son délai.

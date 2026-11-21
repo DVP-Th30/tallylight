@@ -78,7 +78,7 @@ pub trait Listener: Send + Sync {
 }
 
 /// Une machine appairée, telle qu'elle est conservée.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 struct Saved {
     id: String,
     ticket: String,
@@ -182,9 +182,11 @@ impl Tallylight {
         if let Some(task) = running.tasks.remove(&id) {
             task.abort();
         }
-        let mut machines = load(&self.data_dir);
-        machines.retain(|machine| machine.id != id);
-        save(&self.data_dir, &machines);
+        update(&self.data_dir, |machines| {
+            let before = machines.len();
+            machines.retain(|machine| machine.id != id);
+            machines.len() != before
+        });
         if let Some(listener) = &running.listener {
             listener.on_machine_removed(id);
         }
@@ -347,17 +349,27 @@ impl Follower {
 
     /// Conserve la machine (ticket et nom) pour les prochains lancements.
     fn remember(&self, ticket: &str) {
-        let mut machines = load(&self.data_dir);
-        machines.retain(|machine| machine.id != self.machine.id);
-        machines.push(Saved {
+        let saved = Saved {
             id: self.machine.id.clone(),
             ticket: ticket.to_string(),
             name: self.machine.name.clone(),
+        };
+        update(&self.data_dir, |machines| {
+            // Rien à écrire si la machine est déjà notée telle quelle : moins d'écritures
+            if machines.contains(&saved) {
+                return false;
+            }
+            machines.retain(|machine| machine.id != saved.id);
+            machines.push(saved);
+            machines.sort_by(|a, b| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
+            true
         });
-        machines.sort_by(|a, b| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
-        save(&self.data_dir, &machines);
     }
 }
+
+/// Sérialise les lectures-modifications-écritures de `machines.json` : chaque machine suivie a sa
+/// tâche, et deux tâches qui notent leur machine en même temps ne doivent pas s'effacer.
+static MACHINES: Mutex<()> = Mutex::new(());
 
 fn load(data_dir: &Path) -> Vec<Saved> {
     std::fs::read(data_dir.join("machines.json"))
@@ -366,9 +378,39 @@ fn load(data_dir: &Path) -> Vec<Saved> {
         .unwrap_or_default()
 }
 
+/// Modifie la liste des machines sous verrou ; `change` dit s'il y a quelque chose à écrire.
+fn update(data_dir: &Path, change: impl FnOnce(&mut Vec<Saved>) -> bool) {
+    let _guard = MACHINES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let path = data_dir.join("machines.json");
+    let mut machines = load(data_dir);
+    // Fichier présent mais illisible : on le met de côté plutôt que de l'écraser par une liste
+    // vide, ce qui ferait oublier toutes les machines sans retour possible
+    if machines.is_empty()
+        && let Ok(bytes) = std::fs::read(&path)
+        && serde_json::from_slice::<Vec<Saved>>(&bytes).is_err()
+    {
+        let _ = std::fs::rename(&path, data_dir.join("machines.json.illisible"));
+    }
+    if change(&mut machines) {
+        save(data_dir, &machines);
+    }
+}
+
+/// Écrit la liste d'un coup : fichier temporaire puis renommage, si bien qu'une application tuée en
+/// pleine écriture laisse l'ancienne liste intacte au lieu d'un fichier tronqué.
 fn save(data_dir: &Path, machines: &[Saved]) {
-    if let Ok(bytes) = serde_json::to_vec_pretty(machines) {
-        let _ = std::fs::write(data_dir.join("machines.json"), bytes);
+    let Ok(bytes) = serde_json::to_vec_pretty(machines) else {
+        return;
+    };
+    let temporary = data_dir.join("machines.json.tmp");
+    let written = std::fs::File::create(&temporary).and_then(|mut file| {
+        std::io::Write::write_all(&mut file, &bytes)?;
+        file.sync_all()
+    });
+    if written.is_ok() {
+        let _ = std::fs::rename(&temporary, data_dir.join("machines.json"));
     }
 }
 
@@ -379,15 +421,17 @@ fn migrate(data_dir: &Path) {
         return;
     };
     if let Ok(id) = tallylight_client::machine_id(&ticket) {
-        let mut machines = load(data_dir);
-        if !machines.iter().any(|machine| machine.id == id) {
+        update(data_dir, |machines| {
+            if machines.iter().any(|machine| machine.id == id) {
+                return false;
+            }
             machines.push(Saved {
                 id,
                 ticket: ticket.trim().to_string(),
                 name: String::new(),
             });
-            save(data_dir, &machines);
-        }
+            true
+        });
     }
     let _ = std::fs::remove_file(old);
 }
@@ -500,6 +544,63 @@ mod tests {
             }],
         );
         assert_eq!(load(&dir)[0].name, "serveur");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn saved(id: &str) -> Saved {
+        Saved {
+            id: id.into(),
+            ticket: format!("ticket-{id}"),
+            name: id.into(),
+        }
+    }
+
+    #[test]
+    fn machines_noted_at_the_same_time_are_all_kept() {
+        let dir = std::env::temp_dir().join(format!("tallylight-ffi-race-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let threads: Vec<_> = (0..16)
+            .map(|n| {
+                let dir = dir.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..20 {
+                        update(&dir, |machines| {
+                            let machine = saved(&format!("m{n}"));
+                            machines.retain(|known| known.id != machine.id);
+                            machines.push(machine);
+                            true
+                        });
+                    }
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        assert_eq!(load(&dir).len(), 16);
+        assert!(!dir.join("machines.json.tmp").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unreadable_list_is_set_aside_not_overwritten() {
+        let dir =
+            std::env::temp_dir().join(format!("tallylight-ffi-broken-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // Liste tronquée, comme après une application tuée en pleine écriture par une ancienne version
+        std::fs::write(dir.join("machines.json"), "[{\"id\": \"abc\", \"tic").unwrap();
+        update(&dir, |machines| {
+            machines.push(saved("neuve"));
+            true
+        });
+        assert_eq!(load(&dir), vec![saved("neuve")]);
+        assert!(
+            std::fs::read_to_string(dir.join("machines.json.illisible"))
+                .unwrap()
+                .starts_with("[{")
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
