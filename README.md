@@ -5,6 +5,8 @@
 [![ci](https://github.com/DVP-Th30/tallylight/actions/workflows/ci.yml/badge.svg)](https://github.com/DVP-Th30/tallylight/actions/workflows/ci.yml)
 ![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)
 
+![Agents on the left change state, and a red light turns on across a phone, a menu bar and a desk lamp when one of them waits for you](docs/media/demo.gif)
+
 You start an agent on a server, two more on your laptop, and go back to your own work. One of them has been waiting on a permission prompt for twenty minutes, and nothing told you.
 
 tallylight is the missing signal. One small binary per machine follows your agent sessions and streams their state to the screens you pair with it (a terminal, a phone, your own app) over a direct, end-to-end encrypted connection. No account, no server in the middle.
@@ -135,7 +137,12 @@ tally.start(object : Listener {
 tally.pair(scannedQr)
 ```
 
-`android/build-aar.sh` builds a ready-to-use `.aar` (native library, Kotlin bindings, permissions, R8 rules). The compressed library weighs about 3.4 MB. Swift bindings are next.
+Each [release](https://github.com/DVP-Th30/tallylight/releases) ships a ready-to-use `.aar` (native library for arm64 and x86_64, Kotlin bindings, permissions, R8 rules); `android/build-aar.sh` builds it from source. The app adds JNA (`net.java.dev.jna:jna:5.x@aar`). Swift bindings are next.
+
+### Examples
+
+- [`examples/menubar`](examples/menubar): tallylight in the macOS menu bar with SwiftBar or xbar. Thirty lines of shell over the local HTTP port, no pairing.
+- [`needs_you.rs`](crates/tallylight-client/examples/needs_you.rs): a remote screen in Rust that prints a line when an agent starts waiting. `cargo run -p tallylight-client --example needs_you -- '<pairing string>'`.
 
 Building with an LLM? Point it at [llms.txt](https://dvp-th30.github.io/tallylight/llms.txt): the protocol, the states, the code and the limits in one file.
 
@@ -144,7 +151,7 @@ Building with an LLM? Point it at [llms.txt](https://dvp-th30.github.io/tallylig
 - **Pairing.** Each screen has its own key. To get on a machine's allow-list, it presents a random one-time code (valid five minutes, single use) shown by `tallylight pair`. After that the machine recognises the key. `tallylight unpair` removes a screen.
 - **Transport.** QUIC, end-to-end encrypted between the machine and the screen. A relay is used only when no direct path is found, and it only sees ciphertext.
 - **What leaves the machine.** Session state, working directory and title, the tool name, a one-line detail (at most 140 characters: a command's description, a file name, the question asked), the first 600 characters of the agent's last message, and the model name. Never file contents, never command output. A command without a description is reduced to the program's name.
-- **Relays.** By default tallylight uses the public relays run by iroh's maintainers, which are meant for development. Use your own with `--relay https://relay.example.com` or `TALLYLIGHT_RELAY`.
+- **Relays.** By default tallylight uses the public relays run by iroh's maintainers, which are meant for development. Use your own with `--relay https://relay.example.com` or `TALLYLIGHT_RELAY`. See [docs/RELAY.md](docs/RELAY.md).
 - **Local port.** The daemon listens on `127.0.0.1:47700` and trusts local processes. Don't run it on a machine you share with people you don't trust.
 
 Found a security problem? See [SECURITY.md](SECURITY.md).
@@ -175,7 +182,7 @@ Reports are welcome.
 
 ## Roadmap
 
-- **Next:** more agents; Swift bindings and an iOS screen; a packaged self-hosted relay.
+- **Next:** more agents; Swift bindings and an iOS screen; Windows.
 - **Later:** a small Bluetooth desk display (ESP32); an optional wake-up service for sleeping phones, run by each app with its own keys; answering a permission request from the screen.
 
 ## Build from source
