@@ -17,12 +17,12 @@ Sur serveurdvp la mémoire est comptée : lancer les grosses compilations sous `
 tallylight install      # ajoute les hooks aux réglages de Claude Code (sauvegarde à côté) et lance le service
 tallylight uninstall    # retire les hooks et le service, garde les données
 ```
-Le service est une unité utilisateur systemd sous Linux, un agent de lancement sous macOS (`~/Library/LaunchAgents/dev.tallylight.daemon.plist`, journal dans `~/Library/Logs/tallylight.log`). Les hooks des autres outils (Vibe Island…) ne sont pas touchés.
+Le service est une unité utilisateur systemd sous Linux, un agent de lancement sous macOS (`~/Library/LaunchAgents/dev.tallylight.daemon.plist`, journal dans `~/Library/Logs/tallylight.log`), une tâche planifiée sous Windows (voir « Windows » plus bas). Les hooks des autres outils (Vibe Island…) ne sont pas touchés.
 
 `install` attend que le démon réponde sur son port local (20 s au plus) avant d'annoncer « démarré » : le lanceur rend la main avant que le démon écoute. Sans réponse, il le dit et renvoie au journal.
 
 ## Intégration continue
-- `ci.yml` : format, clippy et tests à chaque poussée sur `main`.
+- `ci.yml` : format, clippy et tests à chaque poussée sur `main` et à chaque demande de fusion. Un second travail, sur `windows-latest`, passe clippy et les tests des trois crates attendues sous Windows (`tallylight`, `tallylight-core`, `tallylight-client`), puis déroule `.github/scripts/smoke.ps1` (hooks, démon, un événement, appairage, dossiers par défaut de Windows) et `.github/scripts/service.ps1` (tâche planifiée : installation, relance, relais gardé, désinstallation).
 - `release.yml` : publie une version sur étiquette `v*` (voir « Publier une version »).
 - `pages.yml` : publie `site/` sur GitHub Pages, seulement quand le dépôt est public.
 - `binaries.yml` : lancé à la main (`gh workflow run binaries`), construit `tallylight` pour macOS (Apple Silicon) et Linux et les dépose dans la version de développement `dev`. Pas automatique : une machine macOS compte dix fois dans le quota d'Actions.
@@ -32,9 +32,9 @@ gh release download dev -R DVP-Th30/tallylight -p 'tallylight-aarch64-apple-darw
 
 ## Publier une version
 1. Mettre la version dans `Cargo.toml` (`[workspace.package] version`, et les dépendances internes des crates), compléter `CHANGELOG.md`, committer.
-2. Répétition : `gh workflow run release` construit les quatre binaires sans rien publier (Linux x86_64 et arm64 en musl, donc statiques ; macOS Apple Silicon et Intel).
-3. `git tag v0.1.0 && git push origin v0.1.0` : `release.yml` crée la version GitHub avec, par plateforme, `tallylight-<cible>.tar.gz` et son empreinte `.sha256`.
-4. `site/install.sh` (servi par GitHub Pages) télécharge la dernière version, vérifie l'empreinte et installe dans `~/.local/bin`. Il ne fonctionne qu'une fois le dépôt public et une version `v*` publiée.
+2. Répétition : `gh workflow run release` construit les cinq binaires sans rien publier (Linux x86_64 et arm64 en musl, donc statiques ; macOS Apple Silicon et Intel ; Windows x86_64). Sous Windows, la répétition installe aussi l'archive obtenue par `site/install.ps1` (servie localement, sous Windows PowerShell 5.1), déroule les deux scripts d'essai et rejoue l'installation par-dessus un service en marche.
+3. `git tag v0.1.0 && git push origin v0.1.0` : `release.yml` crée la version GitHub avec, par plateforme, `tallylight-<cible>.tar.gz` (`.zip` sous Windows) et son empreinte `.sha256`.
+4. `site/install.sh` (servi par GitHub Pages) télécharge la dernière version, vérifie l'empreinte et installe dans `~/.local/bin`. Il ne fonctionne qu'une fois le dépôt public et une version `v*` publiée. Sous Windows, `site/install.ps1` fait de même vers `%LOCALAPPDATA%\tallylight\bin` (`irm https://dvp-th30.github.io/tallylight/install.ps1 | iex`) ; il ne trouvera une archive qu'à partir de la première version publiée après la 0.1.0.
 
 `binaries.yml` (version `dev`) reste pour essayer la branche `main` sans publier.
 
@@ -51,6 +51,14 @@ Fait le 2026-11-22 : dépôt public, Pages et signalement privé de failles acti
 Essai sur machines vierges : `gh workflow run install-test` installe la dernière version par la commande du site sur dix systèmes neufs (Ubuntu Intel et ARM, macOS Apple Silicon et Intel, conteneurs Debian 12, Ubuntu 20.04, Alpine Intel et ARM, Fedora, Arch) puis déroule `.github/scripts/smoke.sh` : hooks, démon, un événement, appairage. Avec `-f source=release-assets`, il prend les fichiers de la version au lieu du site (seul moyen tant que le dépôt est privé).
 
 Historique vérifié le 2026-11-22 : aucun secret ni adresse IP ; seuls restent des noms de machines et de dossiers personnels dans les docs.
+
+## Windows (2026-11-22, décision D16)
+- Binaire : `%LOCALAPPDATA%\tallylight\bin\tallylight.exe` (ajouté au `PATH` de l'utilisateur par `install.ps1`).
+- Tâche planifiée `tallylight` : `schtasks /Query /TN tallylight /V /FO LIST` pour son état, `schtasks /Run /TN tallylight` et `schtasks /End /TN tallylight` pour la lancer et l'arrêter. Journal du démon : `%LOCALAPPDATA%\tallylight\daemon.log`.
+- Hooks : `%USERPROFILE%\.claude\settings.json`, sauvegarde dans `settings.json.before-tallylight`.
+- Données : `%LOCALAPPDATA%\tallylight\` (`key`, `ticket`, `devices.json`, `sessions.json`, `service.xml`).
+- Mettre à jour : relancer `install.ps1` (il arrête la tâche, remplace le binaire, la relance), ou arrêter la tâche avant de remplacer le binaire à la main.
+- Pas de machine Windows parmi les appareils de test : tout a été vérifié sur les machines `windows-latest` de GitHub Actions (`ci.yml`, et `gh workflow run release` pour l'installateur). `install-test.yml` n'a pas de cas Windows : il télécharge une version publiée, et aucune ne contient encore l'archive Windows.
 
 ## Compiler pour Android
 NDK 29 dans `~/android-sdk/ndk/29.0.14206865`, cible Rust `aarch64-linux-android` (installés le 2026-11-17).

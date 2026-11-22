@@ -286,10 +286,14 @@ mod tests {
         )
         .unwrap();
         let store = Store::new("m".into(), None);
-        store.apply_claude(&event(&format!(
-            r#"{{"session_id":"a","hook_event_name":"Stop","cwd":"/p","transcript_path":"{}"}}"#,
-            transcript.display()
-        )));
+        // Le chemin passe par l'encodeur JSON : sous Windows il contient des barres obliques inverses
+        let stop = serde_json::json!({
+            "session_id": "a",
+            "hook_event_name": "Stop",
+            "cwd": "/p",
+            "transcript_path": transcript.to_string_lossy(),
+        });
+        store.apply_claude(&event(&stop.to_string()));
         assert_eq!(
             store.snapshot().sessions[0].model.as_deref(),
             Some("claude-opus-5-5")

@@ -25,6 +25,9 @@ jobs:
             target: aarch64-apple-darwin
           - os: macos-latest
             target: x86_64-apple-darwin
+          # Bibliothèque C liée dans le binaire (.cargo/config.toml) : rien à installer à côté
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -38,6 +41,7 @@ jobs:
           key: ${{ matrix.target }}
       - run: cargo build --release --locked -p tallylight --target ${{ matrix.target }}
       - name: Archive et empreinte
+        if: runner.os != 'Windows'
         run: |
           name=tallylight-${{ matrix.target }}
           mkdir "$name"
@@ -46,10 +50,68 @@ jobs:
           shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
           "$name/tallylight" --version || true
           ls -l "$name.tar.gz"
+      # Windows : une archive zip, et la même forme d'empreinte que `shasum`
+      - name: Archive et empreinte (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $name = "tallylight-${{ matrix.target }}"
+          New-Item -ItemType Directory $name | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/tallylight.exe", README.md, LICENSE-MIT, LICENSE-APACHE $name
+          Compress-Archive -Path $name -DestinationPath "$name.zip"
+          $hash = (Get-FileHash -Algorithm SHA256 "$name.zip").Hash.ToLower()
+          [IO.File]::WriteAllText("$PWD/$name.zip.sha256", "$hash  $name.zip`n")
+          & "$name/tallylight.exe" --version
+          Get-Item "$name.zip"
+      # L'archive telle qu'elle sera publiée, installée par le script du site (servi localement),
+      # sous Windows PowerShell 5.1 : celui que tout Windows possède
+      - name: Essai de l'installateur (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item "tallylight-${{ matrix.target }}.zip", "tallylight-${{ matrix.target }}.zip.sha256" dist
+          $server = Start-Process python -ArgumentList '-m', 'http.server', '8765', '--bind', '127.0.0.1', '--directory', 'dist' -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 3
+          $script = (Get-Content site/install.ps1 -Raw).Replace('https://github.com/$repo/releases/latest/download', 'http://127.0.0.1:8765')
+          if (-not $script.Contains('http://127.0.0.1:8765')) { throw 'the download address was not replaced' }
+          try { Invoke-Expression $script } finally { Stop-Process -Id $server.Id -Force }
+          $exe = "$env:LOCALAPPDATA\tallylight\bin\tallylight.exe"
+          if (-not (Test-Path $exe)) { throw "nothing installed at $exe" }
+          $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+          if (-not $userPath.Contains("$env:LOCALAPPDATA\tallylight\bin")) { throw 'the user PATH was not updated' }
+      - name: Essai de bout en bout (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .github/scripts/smoke.ps1 "$env:LOCALAPPDATA\tallylight\bin\tallylight.exe"
+      - name: Service en arrière-plan (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .github/scripts/service.ps1 "$env:LOCALAPPDATA\tallylight\bin\tallylight.exe"
+      # Windows verrouille un programme qui tourne : le script arrête la tâche, remplace, relance
+      - name: Mise à jour, service en marche (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = "$env:LOCALAPPDATA\tallylight\bin\tallylight.exe"
+          & $exe install
+          if ($LASTEXITCODE -ne 0) { throw 'install failed' }
+          $server = Start-Process python -ArgumentList '-m', 'http.server', '8765', '--bind', '127.0.0.1', '--directory', 'dist' -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 3
+          $script = (Get-Content site/install.ps1 -Raw).Replace('https://github.com/$repo/releases/latest/download', 'http://127.0.0.1:8765')
+          try { Invoke-Expression $script } finally { Stop-Process -Id $server.Id -Force }
+          Start-Sleep -Seconds 5
+          Invoke-RestMethod http://127.0.0.1:47700/sessions | Out-Null
+          & $exe uninstall
+          if ($LASTEXITCODE -ne 0) { throw 'uninstall failed' }
       - name: Dépôt dans la version
         if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
         run: |
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" tallylight-${{ matrix.target }}.tar.gz tallylight-${{ matrix.target }}.tar.gz.sha256 --clobber
+          # tar.gz ou zip selon le système, avec son empreinte
+          gh release upload "$GITHUB_REF_NAME" tallylight-${{ matrix.target }}.* --clobber
         env:
           GH_TOKEN: ${{ github.token }}

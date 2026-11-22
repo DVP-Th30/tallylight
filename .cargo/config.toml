@@ -1,0 +1,4 @@
+# Windows : la bibliothèque C de Microsoft est liée dans le binaire, qui se lance donc sur une
+# machine sans « Visual C++ Redistributable » (même raison que musl sous Linux, décision D15).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
