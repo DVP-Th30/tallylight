@@ -39,6 +39,7 @@ gh release download dev -R DVP-Th30/tallylight -p 'tallylight-aarch64-apple-darw
 `binaries.yml` (version `dev`) reste pour essayer la branche `main` sans publier.
 
 ## Passage en public (liste à dérouler le jour J, décision D7)
+Fait le 2026-11-22 : dépôt public, Pages et signalement privé de failles activés, version `v0.1.0` publiée, sujets et page d'accueil renseignés, `install-test` vert sur les dix systèmes avec la commande du site (run 45048191849). Reste l'étape 7, facultative. La liste est gardée pour mémoire.
 1. Vérifier que la CI est verte sur `main` et que `gh workflow run release` passe.
 2. Rendre le dépôt public (réglages GitHub, ou `gh repo edit DVP-Th30/tallylight --visibility public --accept-visibility-change-consequences`).
 3. Activer Pages en mode Actions : `gh api -X POST repos/DVP-Th30/tallylight/pages -f build_type=workflow`, puis `gh workflow run pages`. Adresse : `https://dvp-th30.github.io/tallylight/`.
