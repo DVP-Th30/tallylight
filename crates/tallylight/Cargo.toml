@@ -26,3 +26,7 @@ tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "io-util"
 
 [target."cfg(unix)".dependencies]
 libc = "0.2.191"
+
+# Existence d'un processus, console du démon lancé par la tâche planifiée
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Console", "Win32_System_Threading"] }

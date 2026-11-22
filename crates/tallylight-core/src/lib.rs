@@ -2,6 +2,7 @@
 //! Voir `docs/DECISIONS.md` (D2) pour le choix du vocabulaire.
 
 pub mod claude;
+pub mod codex;
 pub mod protocol;
 
 use serde::{Deserialize, Serialize};
@@ -44,7 +45,7 @@ impl State {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
     pub id: String,
-    /// Agent qui tient la session (« claude-code »).
+    /// Agent qui tient la session (« claude-code », « codex »).
     pub agent: String,
     /// Dossier de travail de la session.
     pub cwd: String,
@@ -79,13 +80,17 @@ impl Session {
 
     /// Nom court affiché : dernier élément du dossier de travail.
     pub fn project(&self) -> &str {
-        self.cwd
-            .trim_end_matches('/')
-            .rsplit('/')
-            .next()
+        Some(last_component(&self.cwd))
             .filter(|name| !name.is_empty())
             .unwrap_or("/")
     }
+}
+
+/// Dernier élément d'un chemin, quel que soit le système qui l'a écrit : un écran sous Linux
+/// affiche aussi les sessions d'une machine Windows (`C:\Users\moi\projet`).
+pub fn last_component(path: &str) -> &str {
+    let path = path.trim_end_matches(['/', '\\']);
+    path.rsplit(['/', '\\']).next().unwrap_or(path)
 }
 
 /// Nom lisible d'un modèle : « claude-opus-5-5 » donne « Opus 5.5 », « claude-fable-5-2 » donne
@@ -188,5 +193,10 @@ mod tests {
         assert_eq!(session.label(), "Refonte du volet");
         session.cwd = "/".into();
         assert_eq!(session.project(), "/");
+        // Dossier d'une machine Windows, lu depuis n'importe quel écran
+        session.cwd = r"C:\Users\moi\projets\tallylight".into();
+        assert_eq!(session.project(), "tallylight");
+        session.cwd = r"C:\".into();
+        assert_eq!(session.project(), "C:");
     }
 }

@@ -8,11 +8,16 @@ use std::{
 
 use tallylight_core::{
     Session, Snapshot, State,
-    claude::{Change, HookEvent, change, last_message},
+    claude::{self, Change, HookEvent, last_message},
+    codex,
 };
 use tokio::sync::watch;
 
 use crate::{claude_local::LocalSession, now, write_private};
+
+/// Nom de chaque agent dans le champ `agent` d'une session.
+const CLAUDE_CODE: &str = "claude-code";
+const CODEX: &str = "codex";
 
 /// Délai laissé au hook `Stop` avant de conclure qu'un tour a été interrompu.
 const INTERRUPT_GRACE: u64 = 3;
@@ -73,9 +78,21 @@ impl Store {
             .transcript_path
             .as_deref()
             .and_then(|path| crate::transcript::last_model(std::path::Path::new(path)));
+        self.apply(CLAUDE_CODE, event, claude::change(event), model);
+    }
+
+    /// Applique un événement de Codex. Le modèle est dans l'événement : sa transcription, d'un
+    /// autre format que celle de Claude Code, n'est pas lue.
+    pub fn apply_codex(&self, event: &HookEvent) {
+        let model = event.model.clone().filter(|model| !model.is_empty());
+        self.apply(CODEX, event, codex::change(event), model);
+    }
+
+    /// Applique à la session de l'événement le changement que son agent en a tiré.
+    fn apply(&self, agent: &str, event: &HookEvent, change: Change, model: Option<String>) {
         let mut inner = self.inner.lock().unwrap();
         let before = inner.sessions.clone();
-        match change(event) {
+        match change {
             Change::Ignored => return,
             Change::Ended => {
                 inner.sessions.remove(&event.session_id);
@@ -86,7 +103,7 @@ impl Store {
                 let session = inner
                     .sessions
                     .entry(event.session_id.clone())
-                    .or_insert_with(|| blank(&event.session_id));
+                    .or_insert_with(|| blank(&event.session_id, agent));
                 if !event.cwd.is_empty() {
                     session.cwd = event.cwd.clone();
                 }
@@ -147,7 +164,7 @@ impl Store {
 
         for (id, card) in local.iter().filter(|(_, card)| card.alive) {
             let session = sessions.entry(id.clone()).or_insert_with(|| {
-                let mut session = blank(id);
+                let mut session = blank(id, CLAUDE_CODE);
                 session.cwd = card.cwd.clone();
                 session.updated_at = now;
                 session
@@ -210,10 +227,10 @@ impl Store {
     }
 }
 
-fn blank(id: &str) -> Session {
+fn blank(id: &str, agent: &str) -> Session {
     Session {
         id: id.to_string(),
-        agent: "claude-code".to_string(),
+        agent: agent.to_string(),
         cwd: String::new(),
         title: None,
         state: None,
@@ -286,10 +303,14 @@ mod tests {
         )
         .unwrap();
         let store = Store::new("m".into(), None);
-        store.apply_claude(&event(&format!(
-            r#"{{"session_id":"a","hook_event_name":"Stop","cwd":"/p","transcript_path":"{}"}}"#,
-            transcript.display()
-        )));
+        // Le chemin passe par l'encodeur JSON : sous Windows il contient des barres obliques inverses
+        let stop = serde_json::json!({
+            "session_id": "a",
+            "hook_event_name": "Stop",
+            "cwd": "/p",
+            "transcript_path": transcript.to_string_lossy(),
+        });
+        store.apply_claude(&event(&stop.to_string()));
         assert_eq!(
             store.snapshot().sessions[0].model.as_deref(),
             Some("claude-opus-5-5")
@@ -376,6 +397,51 @@ mod tests {
         // Ni fiche ni tour : fantôme. La session qui a travaillé reste, même sans fiche
         store.reconcile(&HashMap::new(), t + 90);
         assert_eq!(ids(&store), ["done"]);
+    }
+
+    #[test]
+    fn codex_sessions_live_next_to_claude_code_ones() {
+        let store = Store::new("m".into(), None);
+        store.apply_claude(&event(
+            r#"{"session_id":"a","hook_event_name":"UserPromptSubmit","cwd":"/p/demo"}"#,
+        ));
+        store.apply_codex(&event(
+            r#"{"session_id":"b","turn_id":"t","transcript_path":null,"cwd":"/p/api",
+                "hook_event_name":"UserPromptSubmit","model":"gpt-example","permission_mode":"default","prompt":"x"}"#,
+        ));
+        store.apply_codex(&event(
+            r#"{"session_id":"b","turn_id":"t","transcript_path":null,"cwd":"/p/api",
+                "hook_event_name":"PermissionRequest","model":"gpt-example","permission_mode":"default",
+                "tool_name":"apply_patch","tool_input":{"command":"*** Begin Patch\n*** Add File: src/new.rs\n+x\n*** End Patch"}}"#,
+        ));
+        let sessions = store.snapshot().sessions;
+        assert_eq!(sessions[0].agent, "claude-code");
+        let codex = &sessions[1];
+        assert_eq!(
+            (codex.agent.as_str(), codex.state, codex.model.as_deref()),
+            ("codex", Some(State::InputRequired), Some("gpt-example"))
+        );
+        assert_eq!(
+            (codex.tool.as_deref(), codex.detail.as_deref()),
+            (Some("apply_patch"), Some("new.rs"))
+        );
+
+        // Aucune fiche locale pour Codex : le rapprochement avec celles de Claude Code garde la
+        // session tant qu'elle a changé d'état depuis moins de 12 heures
+        let t = now();
+        store.reconcile(&HashMap::new(), t + 3600);
+        assert_eq!(store.snapshot().sessions.len(), 2);
+
+        store.apply_codex(&event(
+            r#"{"session_id":"b","turn_id":"t","transcript_path":null,"cwd":"/p/api",
+                "hook_event_name":"Interrupt","model":"gpt-example","permission_mode":"default"}"#,
+        ));
+        let codex = store.snapshot().sessions[1].clone();
+        assert_eq!((codex.state, codex.tool), (Some(State::Canceled), None));
+        store.apply_codex(&event(
+            r#"{"session_id":"b","transcript_path":null,"cwd":"/p/api","hook_event_name":"SessionEnd","reason":"other"}"#,
+        ));
+        assert_eq!(store.snapshot().sessions.len(), 1);
     }
 
     #[test]

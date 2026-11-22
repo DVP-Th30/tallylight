@@ -125,7 +125,12 @@ fn alive(pid: u32) -> bool {
     sent == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn alive(pid: u32) -> bool {
+    crate::windows::process_alive(pid)
+}
+
+#[cfg(not(any(unix, windows)))]
 fn alive(_pid: u32) -> bool {
     true
 }

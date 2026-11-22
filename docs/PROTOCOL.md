@@ -52,7 +52,7 @@ A snapshot is the full list of sessions on the machine, not a diff. A session th
 | Field | Type | |
 |---|---|---|
 | `id` | string | Stable for the life of the session. |
-| `agent` | string | `claude-code` today. |
+| `agent` | string | `claude-code` or `codex`. More agents will add values: don't fail on one you don't know. |
 | `cwd` | string | Working directory. Its last component is the default display name. |
 | `title` | string or null | Name given to the session, if any. |
 | `state` | string or null | See below. `null` until the first turn starts. |
@@ -60,7 +60,7 @@ A snapshot is the full list of sessions on the machine, not a diff. A session th
 | `detail` | string or null | What the tool does, one line, 140 characters at most. |
 | `last_message` | string or null | First 600 characters of the agent's last message, set when a turn ends, cleared when the next one starts. |
 | `url` | string or null | Opens the session in the agent's own app, when there is one. |
-| `model` | string or null | Identifier of the model that answered last, for example `claude-opus-5-5`. |
+| `model` | string or null | Identifier of the model that answered last, for example `claude-opus-5-5`; for Codex, the session's model. |
 | `updated_at` | integer | Unix seconds of the last state or tool change. |
 
 Unknown fields must be ignored: new ones may be added without a new protocol version.
@@ -77,11 +77,14 @@ The values of `state` follow `TaskState` from A2A 1.0.
 | `failed` | The turn ended on an error. |
 | `canceled` | The turn was interrupted. |
 
+Not every agent can report every state: Codex sessions never show `failed`, because Codex has no event for a turn that ends on an error.
+
 ## Local HTTP
 
 The daemon also listens on `127.0.0.1:47700` (change with `--port`):
 
 - `GET /sessions` returns the current snapshot.
 - `POST /hooks/claude` receives Claude Code hook events (the hook's own JSON body).
+- `POST /hooks/codex` receives Codex hook events. Codex has no HTTP hooks: its command hooks run `tallylight hook codex`, which forwards the JSON it reads on stdin.
 
 This port trusts every local process; it is not reachable from the network.

@@ -54,7 +54,7 @@ pub async fn run(port: u16, relays: Relays) -> Result<()> {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port))
         .await
         .with_context(|| format!("could not listen on port {port} (already in use?)"))?;
-    println!("listening for hooks on http://127.0.0.1:{port}/hooks/claude");
+    println!("listening for hooks on http://127.0.0.1:{port}/hooks/claude and /hooks/codex");
     if relays.is_n0() {
         println!("relay: n0 (public, meant for development; --relay to use your own)");
     } else {
@@ -98,6 +98,7 @@ pub async fn run(port: u16, relays: Relays) -> Result<()> {
     };
     let router = Router::new()
         .route("/hooks/claude", post(claude_hook))
+        .route("/hooks/codex", post(codex_hook))
         .route("/sessions", get(sessions))
         .route("/pair", post(pair))
         .route("/devices", get(devices))
@@ -152,21 +153,36 @@ pub async fn run(port: u16, relays: Relays) -> Result<()> {
 
 /// Réponse vide : le hook ne décide de rien, il informe seulement.
 async fn claude_hook(State(app): State<Arc<App>>, Json(body): Json<Value>) -> Json<Value> {
-    if let Some(path) = std::env::var_os("TALLYLIGHT_LOG_EVENTS") {
-        // Journal brut des événements, pour étudier ce que l'agent envoie réellement
-        use std::io::Write;
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-        {
-            let _ = writeln!(file, "{body}");
-        }
-    }
+    log_event(&body);
     if let Ok(event) = serde_json::from_value::<HookEvent>(body) {
         app.store.apply_claude(&event);
     }
     Json(json!({}))
+}
+
+/// Événement de Codex, relayé par `tallylight hook codex` (Codex n'a pas de hook `http`).
+async fn codex_hook(State(app): State<Arc<App>>, Json(body): Json<Value>) -> Json<Value> {
+    log_event(&body);
+    if let Ok(event) = serde_json::from_value::<HookEvent>(body) {
+        app.store.apply_codex(&event);
+    }
+    Json(json!({}))
+}
+
+/// Journal brut des événements (`TALLYLIGHT_LOG_EVENTS=<fichier>`), pour étudier ce qu'un agent
+/// envoie réellement.
+fn log_event(body: &Value) {
+    let Some(path) = std::env::var_os("TALLYLIGHT_LOG_EVENTS") else {
+        return;
+    };
+    use std::io::Write;
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(file, "{body}");
+    }
 }
 
 async fn sessions(State(app): State<Arc<App>>) -> Json<Snapshot> {

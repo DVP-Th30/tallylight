@@ -85,9 +85,73 @@ Limite assumée : un contributeur non francophone lit le code sans ses commentai
 
 ## D15 — Versions : binaires statiques par étiquette, script d'installation (2026-11-22)
 Une étiquette `v*` publie quatre binaires (Linux x86_64 et arm64 liés à musl, macOS Apple Silicon et Intel) avec leur empreinte SHA-256. Linux en musl : un binaire lié à la glibc de la machine de construction refuse de se lancer sur une distribution plus ancienne. `site/install.sh` installe la dernière version dans `~/.local/bin` après vérification de l'empreinte ; `cargo install --git` reste possible.
-Écarté pour l'instant : Homebrew, paquets `.deb` (à faire si la demande existe) ; cargo-dist (outil de plus pour quatre cibles) ; Windows (le service et les chemins sont propres à Unix).
+Écarté pour l'instant : Homebrew, paquets `.deb` (à faire si la demande existe) ; cargo-dist (outil de plus pour quatre cibles) ; Windows (le service et les chemins sont propres à Unix) — levé par D16.
 
-## D16 — Swift : un paquet local, bibliothèque statique dans un xcframework (2026-11-22)
+## D16 — Windows : tâche planifiée à l'ouverture de session, données dans `%LOCALAPPDATA%` (2026-11-22)
+Le binaire se compile et tourne sous Windows x86_64 ; une cinquième cible, `x86_64-pc-windows-msvc`, sort avec chaque version (archive zip).
+- **Service** : `tallylight install` inscrit une tâche planifiée `tallylight` (`schtasks /Create /XML`), déclenchée à l'ouverture de session de l'utilisateur, avec ses droits ordinaires. Elle est décrite en XML car les options de `schtasks` ne savent ni viser un seul utilisateur, ni lever les réglages par défaut du planificateur (pas de lancement sur batterie, arrêt au bout de trois jours). Relance en cas d'échec : toutes les minutes, dix fois. La tâche lance `tallylight daemon --background` : le démon se détache de sa console (pas de fenêtre ouverte en permanence) et écrit son journal dans `%LOCALAPPDATA%\tallylight\daemon.log`, remis à zéro au lancement au-delà de 1 Mo. Une copie de la tâche (`service.xml`) reste dans le dossier de données pour retrouver les relais à la réinstallation, comme le fichier de service des autres systèmes (D11).
+- **Données** : `%LOCALAPPDATA%\tallylight` (propre à la machine, pas dans le profil itinérant : la clé est l'identité de cette machine). `XDG_DATA_HOME` reste prioritaire partout, pour les essais.
+- **Droits des fichiers** : Windows n'a pas de mode 0600. Les fichiers héritent des droits de `%LOCALAPPDATA%`, ouvert au seul utilisateur, au système et aux administrateurs ; rien n'est durci au-delà. L'écriture d'un coup (fichier temporaire puis renommage, D12) est la même.
+- **Réglages de Claude Code** : `%USERPROFILE%\.claude\settings.json` (documentation officielle, https://code.claude.com/docs/en/settings, lue le 2026-11-22), ou `CLAUDE_CONFIG_DIR`. Les hooks de type `http` sont les mêmes sur tous les systèmes.
+- **Processus vivants** (D9) : `OpenProcess` puis `GetExitCodeProcess`, à la place du signal 0.
+- **Chemins** : le dernier élément d'un dossier ou d'un fichier se lit avec `/` comme avec `\`, y compris sur un écran Linux qui affiche une machine Windows ; sinon le chemin entier d'un fichier partait vers les écrans. L'outil `PowerShell` de Claude Code est résumé comme `Bash`.
+- **Binaire** : bibliothèque C de Microsoft liée dans le binaire (`.cargo/config.toml`), donc rien à installer à côté. `site/install.ps1` vérifie l'empreinte, installe dans `%LOCALAPPDATA%\tallylight\bin`, ajoute ce dossier au `PATH` de l'utilisateur et, pour une mise à jour, arrête la tâche le temps de remplacer le binaire (Windows verrouille un programme qui tourne).
+
+Écarté :
+- un vrai service Windows : droits d'administrateur à l'installation, et il tourne sous un compte système qui ne voit ni `%USERPROFILE%\.claude` ni les sessions de l'utilisateur, sauf à lui demander son mot de passe ;
+- la clé `Run` du registre ou le dossier Démarrage : ni relance après un échec, ni arrêt (il faudrait tuer le processus par son nom), ni état à interroger ;
+- `--no-service` seul, démon à lancer à la main : c'est le repli qui reste possible, pas une installation ;
+- `conhost --headless` pour cacher la console : option non documentée de Windows.
+
+Limites, et ce qui n'a pas été vu sur un vrai poste Windows (seulement sur les machines `windows-latest` de GitHub Actions) :
+- aucune vraie session Claude Code n'a été suivie sous Windows : le format des fiches `sessions\<pid>.json` (D9) et le dossier des transcriptions (D13, `C:\Users\moi\projet` donnerait `C--Users-moi-projet`) sont supposés identiques à ceux de Linux et macOS ;
+- à l'ouverture de session, une fenêtre de console peut apparaître un instant avant que le démon s'en détache ;
+- la création de la tâche par un utilisateur sans droits d'administrateur n'est pas vérifiée (le compte des machines d'essai est administrateur) ;
+- la tâche est arrêtée sèchement (`schtasks /End`), sans extinction propre du démon : sans conséquence sur les fichiers d'état (D12), l'écran voit seulement la connexion tomber ;
+- pas de binaire ARM64 : le script installe le binaire x86_64, que Windows 11 ARM exécute par émulation (non essayé).
+
+## D17 — Codex : hooks `command` dans `hooks.json`, relayés par `tallylight hook codex` (2026-11-22)
+Deuxième agent suivi. Sources lues le 2026-11-22, la source officielle du jour l'emportant sur l'étude du 2026-11-17 (corrigée) :
+- la doc officielle, https://developers.openai.com/codex/hooks (qui redirige vers https://learn.chatgpt.com/docs/hooks) : ni datée ni versionnée ;
+- le dépôt https://github.com/openai/codex, commit `a0995c2b2b68248960c69cb812b5f4898dac7e4c` (2026-11-22), les mêmes fichiers existant à l'étiquette `rust-v0.171.0` (2026-11-20) : `codex-rs/hooks/src/schema.rs` (corps de chaque événement), `codex-rs/protocol/src/hooks.rs` et `codex-rs/config/src/hook_config.rs` (format de `hooks.json`), `codex-rs/hooks/src/engine/discovery.rs` (chargement, approbation), `codex-rs/hooks/src/engine/command_runner.rs` (lancement par le shell), `codex-rs/hooks/src/events/` (`interrupt.rs`, `session_end.rs`, `model_request.rs`), `codex-rs/core/tests/suite/hooks.rs` (arguments de `Bash` et d'`apply_patch`) ;
+- le paquet npm `@openai/codex` 0.171.0 (2026-11-21), dont le binaire macOS a servi aux essais.
+
+Ce qu'il faut savoir de Codex :
+- Les hooks se déclarent dans `~/.codex/hooks.json` (ou `$CODEX_HOME`), même forme que chez Claude Code, ou dans la table `[hooks]` de `config.toml`. Deux types seulement : `command` et `mcp_tool`. Pas de `http` : un type inconnu rend tout le fichier illisible pour Codex.
+- Une commande est lancée par `$SHELL -lc`, reçoit l'événement en JSON sur son entrée, et une sortie en succès sans rien écrire vaut « rien à dire ».
+- Un hook nouveau ou modifié ne tourne pas tant que l'utilisateur ne l'a pas approuvé : Codex le propose à son lancement (« Hooks need review »), ou par `/hooks`. L'approbation est notée par Codex dans `config.toml` (`[hooks.state]`), avec l'empreinte du hook.
+- Corps des événements : ceux de Claude Code (`session_id`, `cwd`, `hook_event_name`, `tool_name`, `tool_input`, `last_assistant_message`, `transcript_path`), plus `model` et `turn_id`. Outils : `Bash` (`tool_input.command`, et `description` pour certaines demandes d'autorisation), `apply_patch` (`command` contient le correctif), outils MCP.
+- Événements : `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `Stop`, `SubagentStart`/`SubagentStop`, `PreCompact`/`PostCompact`, `PreModelRequest`/`PostModelRequest`, `Interrupt`, `SessionEnd`. Ni `Notification`, ni `StopFailure`.
+- Sessions écrites dans `~/.codex/sessions/AAAA/MM/JJ/rollout-<date>-<identifiant>.jsonl`. Aucune fiche par processus comme celles de Claude Code (D9).
+
+Choix :
+- Fichier `hooks.json`, pas `config.toml` : du JSON, que `install` sait déjà modifier sans rien déranger (sauvegarde `hooks.json.before-tallylight`, hooks des autres intacts, retrait par `uninstall`, fichier supprimé s'il ne contenait que les nôtres). Modifier un TOML à la main aurait demandé une bibliothèque de plus et risqué les commentaires de l'utilisateur.
+- Une commande `tallylight hook codex --port N` plutôt que `curl` : aucune dépendance, jamais d'erreur affichée dans la session (démon arrêté, entrée illisible : sortie en succès, sans un mot), délai interne de 0,8 s car Codex n'accorde qu'une seconde aux hooks `SessionEnd` et `Interrupt`. Elle retire `tool_response` avant l'envoi : la sortie des commandes ne quitte pas le processus du hook. Nos hooks se reconnaissent à la fin de leur commande ; un binaire déplacé remplace la commande au lieu de la doubler (et Codex redemande alors l'approbation, l'empreinte ayant changé).
+- Hooks synchrones, pas `async` : l'ordre des événements fait l'état (un `PostToolUse` arrivé après `Stop` laisserait la session « au travail »). Coût mesuré : 12 ms par événement sur un Mac, profil de shell vide.
+- Installation seulement si Codex est là (dossier `~/.codex` ou `codex` dans le `PATH`) : pas de dossier `.codex` créé chez qui ne s'en sert pas. On n'écrit jamais l'approbation à la place de l'utilisateur : c'est un garde-fou de Codex, `install` dit seulement qu'elle reste à donner.
+- `SessionStart` n'est pas posé : sans fiche de session, une session qui n'a jamais travaillé ne pourrait pas être distinguée d'un processus mort (règle des fantômes de D9). Une session Codex apparaît donc à son premier message.
+- Le même corps d'événement (`claude::HookEvent`, avec `model` en plus) sert aux deux agents ; `Store::apply` est commun, seuls la traduction et l'origine du modèle diffèrent.
+
+Limites, dites telles quelles dans le README :
+- Pas de `failed`. Vérifié : requête au modèle en échec, aucune relance → ni `Stop` ni autre événement de fin ; la session reste « au travail » jusqu'à l'événement suivant.
+- Un Codex tué (terminal fermé, `kill`) n'envoie pas `SessionEnd` : sa session reste affichée dans son dernier état jusqu'à 12 heures (règle existante des sessions sans fiche).
+- Après une autorisation accordée, l'état reste « attend une réponse » jusqu'à la fin de la commande (`PostToolUse`), comme pour Claude Code.
+- Si `config.toml` déclare aussi des hooks, Codex charge les deux et le signale au lancement ; `install` le dit.
+- Pas de Codex sous Windows (ajouté à la fusion avec D16) : Codex lance ses hooks par `$SHELL -lc` sous Unix, et la façon dont il le fait sous Windows n'a pas été lue ni essayée. `install` y saute donc les hooks de Codex et le dit, plutôt que d'écrire une commande qui pourrait échouer à chaque événement.
+
+Vérifié le 2026-11-22 sous macOS, avec le vrai binaire Codex 0.171.0 branché sur un faux modèle local (fournisseur `model_providers` pointé sur `127.0.0.1`, API Responses simulée, aucun compte OpenAI), un démon d'essai et des dossiers temporaires :
+- `codex exec`, hooks approuvés pour l'essai par `--dangerously-bypass-hook-trust` : `UserPromptSubmit`, `PreToolUse` (`Bash`), `PostToolUse`, `Stop`, `SessionEnd` reçus, corps conformes au schéma ; l'écran passe par au travail (Bash, « echo ») puis la session disparaît ;
+- sans approbation : aucun hook ne tourne, et l'interface du terminal affiche « Hooks need review, 7 hooks are new or changed » ;
+- interface du terminal dans un pseudo-terminal, commande demandant une élévation : `PermissionRequest` reçu avec `description`, état « attend une réponse », puis `PostToolUse` et `Stop` après accord ;
+- `SIGINT` pendant une commande : `Interrupt` puis `SessionEnd`.
+Non vérifié : une session avec un vrai modèle d'OpenAI ; Linux ; `apply_patch` et les sous-agents en session réelle (corps tirés des tests de Codex) ; l'approbation menée jusqu'au bout dans l'interface (l'invite a été vue, pas validée) ; la sortie normale de l'interface du terminal.
+
+Écarté :
+- `notify` de `config.toml` (ancien mécanisme) : ne signale que la fin d'un tour.
+- Un `failed` tiré de `PostModelRequest` (`status: failed`) : essayé, il est émis à chaque tentative (six fois en 26 s avec les relances par défaut), pas à l'abandon du tour. Il faudrait poser deux hooks de plus par requête au modèle et temporiser dans le démon pour ne pas faire clignoter l'état pendant les relances. À reprendre si l'absence de `failed` gêne à l'usage.
+- Lire les fichiers `rollout-*.jsonl` pour savoir si une session vit encore : format interne, et un fichier qui ne bouge plus ne dit pas si le processus est mort ou au repos.
+
+## D18 — Swift : un paquet local, bibliothèque statique dans un xcframework (2026-11-22)
 Les liaisons Swift sortent du même crate `tallylight-ffi` que les liaisons Kotlin. `apple/` est un paquet Swift : une cible binaire `TallylightFFI.xcframework` (la bibliothèque Rust et son en-tête C, une tranche par plateforme : iPhone, simulateur Apple Silicon, macOS Apple Silicon et Intel) et une cible `TallylightKit` qui ne contient que le fichier généré par UniFFI. `apple/build-xcframework.sh` produit les deux ; ils ne sont pas dans le dépôt. Une version publie le paquet entier en archive ; l'application l'ajoute comme paquet local.
 - Bibliothèque statique : rien à embarquer ni à signer à part dans l'application, et l'éditeur de liens retire ce qui ne sert pas. Limite assumée : une application qui lie déjà une autre bibliothèque Rust statique aura des symboles en double (chacune embarque la bibliothèque standard).
 - `cargo rustc --crate-type staticlib` dans le script, plutôt que `staticlib` dans `Cargo.toml` : la compilation Android et les tests ne produisent pas une archive dont ils n'ont pas l'usage. Le code propre à Android était déjà réservé à cette cible (`cfg(target_os = "android")`) : rien n'y change.
@@ -100,6 +164,7 @@ Les liaisons Swift sortent du même crate `tallylight-ffi` que les liaisons Kotl
 Vérifié et non vérifié : voir `docs/INFRA.md`, « Compiler pour iOS et macOS ». En bref, le 2026-11-22 : essai de bout en bout réussi sur macOS et dans le simulateur iOS ; aucune application iOS réelle ne l'a encore utilisé, et la question de l'autorisation « Réseau local » d'iOS reste à trancher sur un appareil.
 
 ## Questions ouvertes
+- Codex : obtenir `failed` (voir D17, piste `PostModelRequest`) et savoir qu'un processus Codex est mort sans événement de fin.
 - Envoyer un message à une session Claude Code déjà ouverte (conditionne la voix) : Remote Control sans API, channels en aperçu, socket de boîte de réception au format non documenté. À valider par un essai.
 - Comportement de Claude Code quand un hook `PermissionRequest` dépasse son délai.
 - Notifications Android sans compte Google (UnifiedPush/ntfy) : non vérifié.

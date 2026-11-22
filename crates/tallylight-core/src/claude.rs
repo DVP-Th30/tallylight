@@ -28,6 +28,9 @@ pub struct HookEvent {
     /// Transcription de la session (JSONL), d'où l'on tire le modèle utilisé.
     #[serde(default)]
     pub transcript_path: Option<String>,
+    /// Modèle de la session : Codex le donne dans chaque événement, Claude Code non.
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 /// Effet d'un événement sur la session qui l'a émis.
@@ -113,14 +116,11 @@ const SUMMARY_MAX: usize = 140;
 fn summary(event: &HookEvent) -> Option<String> {
     let input = event.tool_input.as_ref()?;
     let text = |key: &str| input.get(key).and_then(|value| value.as_str());
-    let file = |key: &str| text(key).map(|path| path.rsplit('/').next().unwrap_or(path));
+    let file = |key: &str| text(key).map(crate::last_component);
     let found = match event.tool_name.as_deref()? {
         // Sans description, on ne montre que le nom du programme : une commande entière peut
-        // contenir un mot de passe ou un jeton
-        "Bash" => text("description").or_else(|| {
-            let program = text("command")?.split_whitespace().next()?;
-            Some(program.rsplit('/').next().unwrap_or(program))
-        }),
+        // contenir un mot de passe ou un jeton. `PowerShell` : l'outil de commande sous Windows
+        "Bash" | "PowerShell" => text("description").or_else(|| program(text("command")?)),
         "Read" | "Edit" | "Write" | "NotebookEdit" => file("file_path").or(file("notebook_path")),
         "Grep" | "Glob" => text("pattern"),
         "WebFetch" => text("url"),
@@ -134,6 +134,17 @@ fn summary(event: &HookEvent) -> Option<String> {
         "ExitPlanMode" => Some("plan to approve"),
         _ => None,
     }?;
+    one_line(found)
+}
+
+/// Nom du programme d'une ligne de commande, sans son chemin ni ses arguments.
+pub(crate) fn program(command: &str) -> Option<&str> {
+    let program = command.split_whitespace().next()?;
+    Some(crate::last_component(program))
+}
+
+/// Première ligne d'un texte, coupée à la longueur d'un résumé.
+pub(crate) fn one_line(found: &str) -> Option<String> {
     let line = found.lines().next().unwrap_or_default().trim();
     if line.is_empty() {
         return None;
@@ -259,6 +270,19 @@ mod tests {
         );
         assert!(
             matches!(change(&secret), Change::Set { detail: Some(detail), .. } if detail == "curl")
+        );
+        // Chemins d'une machine Windows : même règle, le dossier ne sort pas
+        let windows = event(
+            r#"{"session_id":"s","hook_event_name":"PreToolUse","tool_name":"Edit","tool_input":{"file_path":"C:\\Users\\moi\\secret\\main.rs"}}"#,
+        );
+        assert!(
+            matches!(change(&windows), Change::Set { detail: Some(detail), .. } if detail == "main.rs")
+        );
+        let shell = event(
+            r#"{"session_id":"s","hook_event_name":"PreToolUse","tool_name":"PowerShell","tool_input":{"command":"C:\\tools\\curl.exe -H 'Authorization: Bearer abc' https://x"}}"#,
+        );
+        assert!(
+            matches!(change(&shell), Change::Set { detail: Some(detail), .. } if detail == "curl.exe")
         );
     }
 

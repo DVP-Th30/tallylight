@@ -19,7 +19,7 @@ On a television set, the tally light is the red lamp on top of the camera that i
 - **Nothing to change in how you work.** It listens to the hooks your agent already fires. No wrapper, no tmux, no special terminal.
 - **A building block, not another app.** A standard state vocabulary ([A2A](https://a2a-protocol.org) `TaskState`) and a client library any app can embed.
 
-Status: early, and used daily by its author. Claude Code on Linux and macOS, read-only. See [what works today](#what-works-today).
+Status: early, and used daily by its author. Claude Code and Codex CLI on Linux, macOS and Windows, read-only. See [what works today](#what-works-today).
 
 ## Install
 
@@ -29,7 +29,13 @@ Linux and macOS (x86_64 and arm64):
 curl -fsSL https://dvp-th30.github.io/tallylight/install.sh | sh
 ```
 
-The script downloads the latest release, checks its SHA-256 and puts `tallylight` in `~/.local/bin`. You can also grab a binary from the [releases page](https://github.com/DVP-Th30/tallylight/releases), or build it:
+Windows (x86_64), in PowerShell, from the first release after 0.1.0:
+
+```powershell
+irm https://dvp-th30.github.io/tallylight/install.ps1 | iex
+```
+
+The script downloads the latest release, checks its SHA-256 and puts `tallylight` in `~/.local/bin` (on Windows: in `%LOCALAPPDATA%\tallylight\bin`, which it adds to your user `PATH`). You can also grab a binary from the [releases page](https://github.com/DVP-Th30/tallylight/releases), or build it:
 
 ```sh
 cargo install --git https://github.com/DVP-Th30/tallylight tallylight
@@ -43,7 +49,9 @@ On each machine where agents run:
 tallylight install
 ```
 
-This adds tallylight's hooks to your Claude Code settings (a backup is kept next to the file, other tools' hooks are left alone) and starts the daemon as a user service (systemd on Linux, launchd on macOS). Sessions that are already open show up too.
+This adds tallylight's hooks to your Claude Code settings (a backup is kept next to the file, other tools' hooks are left alone) and starts the daemon as a user service (systemd on Linux, launchd on macOS, a Task Scheduler task at logon on Windows). Sessions that are already open show up too.
+
+If Codex is on the machine (`~/.codex` exists, or `codex` is on the `PATH`), the same command adds hooks to `~/.codex/hooks.json`, with the same guarantees. Codex does not run a hook you have not approved: the next time it starts it asks you to review the new hooks (or run `/hooks`), and tallylight sees nothing until you trust them. See [Codex](#codex) for what is and isn't reported.
 
 Pair a screen:
 
@@ -61,7 +69,7 @@ tallylight watch '<pairing string>'
 
 After the first time, `tallylight watch` alone follows every machine this terminal has paired with, and reconnects on its own.
 
-Other commands: `tallylight devices` lists paired screens, `tallylight unpair <id>` removes one, `tallylight name <name>` sets how the machine is called on screens, `tallylight uninstall` removes the hooks and the service. `tallylight --help` has the rest.
+Other commands: `tallylight devices` lists paired screens, `tallylight unpair <id>` removes one, `tallylight name <name>` sets how the machine is called on screens, `tallylight hooks` prints the hooks to add them by hand, `tallylight uninstall` removes the hooks and the service. `tallylight --help` has the rest.
 
 ## What a screen receives
 
@@ -88,15 +96,29 @@ One JSON snapshot per change, per machine:
 }
 ```
 
-| State | Meaning | Claude Code hooks |
-|---|---|---|
-| `working` | Thinking or running a tool | `UserPromptSubmit`, `PreToolUse`, `PostToolUse` |
-| `input-required` | Waiting for your answer or permission | `PermissionRequest`, `Notification` |
-| `completed` | Turn finished | `Stop` |
-| `failed` | Turn ended on an error | `StopFailure` |
-| `canceled` | Interrupted before the end | inferred from the session file |
+| State | Meaning | Claude Code | Codex |
+|---|---|---|---|
+| `working` | Thinking or running a tool | `UserPromptSubmit`, `PreToolUse`, `PostToolUse` | `UserPromptSubmit`, `PreToolUse`, `PostToolUse` |
+| `input-required` | Waiting for your answer or permission | `PermissionRequest`, `Notification` | `PermissionRequest` |
+| `completed` | Turn finished | `Stop` | `Stop` |
+| `failed` | Turn ended on an error | `StopFailure` | **not reported** |
+| `canceled` | Interrupted before the end | inferred from the session file | `Interrupt` |
 
-`state` is `null` until the session's first turn. The wire protocol is described in [docs/PROTOCOL.md](docs/PROTOCOL.md).
+`state` is `null` until the session's first turn. `agent` is `claude-code` or `codex`. The wire protocol is described in [docs/PROTOCOL.md](docs/PROTOCOL.md).
+
+### Codex
+
+Codex support is new: it is in the first release after 0.1.0. Linux and macOS only; on Windows, `tallylight install` skips the Codex hooks.
+
+Codex has no HTTP hooks, so each hook runs `tallylight hook codex`, which forwards the event to the daemon and always exits silently, even when the daemon is stopped (about 12 ms per event, measured on a Mac with an empty shell profile; Codex starts hooks through your login shell). What you should know:
+
+- **No `failed`.** Codex fires no hook when a turn ends on an error (model or network failure). The session keeps its last state, usually `working`, until its next event.
+- **A session appears at its first prompt**, not when Codex opens.
+- **A Codex process that is killed** (terminal closed, `kill`) sends no end event: its session stays on screens in its last state for up to 12 hours. A normal exit removes it at once.
+- **No title, no link**: Codex gives neither. The model name comes with every event.
+- **`detail`** is a command's description when Codex provides one (permission requests), otherwise the program's name; for a patch, the name of the first file. Never the command's arguments or the patch.
+
+How it was checked: unit tests on payloads built from Codex's source, and runs of the real Codex CLI 0.171.0 on macOS against a local mock model, with no OpenAI account (a turn with a shell command, a permission request approved in the terminal UI, an interrupt, a failed request, the hook review prompt). **Not verified against a session with a real OpenAI model**, nor on Linux, nor with patches (`apply_patch`) and subagents in a live session, nor when quitting the terminal UI (the end event was seen with `codex exec`).
 
 ## Put it in your own app
 
@@ -175,17 +197,29 @@ Found a security problem? See [SECURITY.md](SECURITY.md).
 
 | | |
 |---|---|
-| Agents | Claude Code. Codex, Copilot CLI, Cursor and OpenCode are next and not tested yet. |
-| Machines | Linux and macOS. No Windows yet. |
+| Agents | Claude Code. Codex CLI (new, checked against a mock model only, see [Codex](#codex)). Copilot CLI, Cursor and OpenCode are next and not tested yet. |
+| Machines | Linux and macOS. Windows (x86_64) is new: see [Windows](#windows). |
 | Screens | Terminal (`tallylight watch`), Android through the Kotlin bindings, any Rust program. Swift bindings for iOS and macOS: they build and pass a test on macOS and in the iOS simulator, not yet tried in a real iOS app. |
 | Direction | Read-only: screens show state, they can't answer the agent yet. |
 | Network | Tested on the same Wi-Fi (8–13 ms, direct), across an office firewall and on 5G (direct after a few seconds through a relay). |
 
-Known limits: a phone that is asleep is not woken up (no push notifications yet), and Claude Code logs a non-blocking hook error in its transcript when the daemon is stopped.
+Known limits: a phone that is asleep is not woken up (no push notifications yet), Claude Code logs a non-blocking hook error in its transcript when the daemon is stopped, and Codex sessions never show `failed` (see [Codex](#codex)).
+
+### Windows
+
+Windows support is new and has only been exercised on CI machines, not yet on a real desktop with live Claude Code sessions. What to know:
+
+- `tallylight install` writes the hooks to `%USERPROFILE%\.claude\settings.json` and registers a Task Scheduler task named `tallylight` that starts the daemon when you log on, with no window. Its log is `%LOCALAPPDATA%\tallylight\daemon.log`; data (identity, paired screens) lives in `%LOCALAPPDATA%\tallylight`.
+- If the task can't be created on your machine, use `tallylight install --no-service` and run `tallylight daemon` yourself.
+- Not checked yet on a real machine: session files and transcripts written by Claude Code on Windows (they feed already-open sessions, dead sessions and the model name), creating the task from an account without administrator rights, and Windows on ARM (the x86_64 build is installed there).
+- A console window may flash when you log on, before the daemon detaches from it.
+- Data files are not locked down beyond the default permissions of `%LOCALAPPDATA%` (your account, the system and administrators).
+
+Reports are welcome.
 
 ## Roadmap
 
-- **Next:** more agents; an iOS screen built on the Swift bindings; Windows.
+- **Next:** more agents; an iOS screen built on the Swift bindings.
 - **Later:** a small Bluetooth desk display (ESP32); an optional wake-up service for sleeping phones, run by each app with its own keys; answering a permission request from the screen.
 
 ## Build from source
