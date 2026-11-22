@@ -63,6 +63,9 @@ jobs:
           [IO.File]::WriteAllText("$PWD/$name.zip.sha256", "$hash  $name.zip`n")
           & "$name/tallylight.exe" --version
           Get-Item "$name.zip"
+          # Le binaire ne doit dépendre d'aucune bibliothèque Visual C++ à installer à part
+          $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes("$PWD/$name/tallylight.exe"))
+          if ($text -match '(?i)(vcruntime|msvcp)\d+\.dll') { throw "the binary depends on $($Matches[0])" }
       # L'archive telle qu'elle sera publiée, installée par le script du site (servi localement),
       # sous Windows PowerShell 5.1 : celui que tout Windows possède
       - name: Essai de l'installateur (Windows)

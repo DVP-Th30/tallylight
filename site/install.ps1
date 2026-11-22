@@ -84,10 +84,10 @@
             $key.SetValue('Path', (($current.TrimEnd(';') + ';' + $binDir).TrimStart(';')), $kind)
             # Tells running programs (Explorer, so new terminals) that the environment changed
             [Environment]::SetEnvironmentVariable('TALLYLIGHT_PATH_REFRESH', $null, 'User')
+            Write-Host "Added $binDir to your PATH (new terminals will see it)."
         }
         $key.Close()
         $env:Path = "$env:Path;$binDir"
-        Write-Host "Added $binDir to your PATH (new terminals will see it)."
     }
     elseif (-not $inPath) {
         Write-Host "Note: $binDir is not in your PATH. Add it, or call $exe directly."
