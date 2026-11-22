@@ -50,6 +50,8 @@ Fait le 2026-11-22 : dépôt public, Pages et signalement privé de failles acti
 
 Essai sur machines vierges : `gh workflow run install-test` installe la dernière version par la commande du site sur dix systèmes neufs (Ubuntu Intel et ARM, macOS Apple Silicon et Intel, conteneurs Debian 12, Ubuntu 20.04, Alpine Intel et ARM, Fedora, Arch) puis déroule `.github/scripts/smoke.sh` : hooks, démon, un événement, appairage. Avec `-f source=release-assets`, il prend les fichiers de la version au lieu du site (seul moyen tant que le dépôt est privé).
 
+Bibliothèque Android : le workflow `android` construit l'AAR (arm64 et x86_64) à chaque étiquette `v*` et le joint à la version. `gh workflow run android -f tag=v0.1.0` complète une version existante ; sans `tag`, c'est une répétition.
+
 Historique vérifié le 2026-11-22 : aucun secret ni adresse IP ; seuls restent des noms de machines et de dossiers personnels dans les docs.
 
 ## Compiler pour Android

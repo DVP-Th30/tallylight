@@ -62,7 +62,7 @@ Persist the key: it is the screen's identity. Persist `watch.ticket()` and pass 
 
 ### 3. Android, in Kotlin
 
-`android/build-aar.sh` in the repository builds a `.aar` (native library, Kotlin bindings, permissions, R8 rules). The app adds JNA (`net.java.dev.jna:jna:5.x@aar`). The bindings handle storage, several machines and reconnection.
+Each release ships a `.aar` (https://github.com/DVP-Th30/tallylight/releases); `android/build-aar.sh` in the repository builds it from source. It contains the native library, the Kotlin bindings, the permissions and the R8 rules. The app adds JNA (`net.java.dev.jna:jna:5.x@aar`). The bindings handle storage, several machines and reconnection.
 
 ```kotlin
 val tally = Tallylight(dataDir, "Kitchen tablet")
@@ -123,4 +123,7 @@ One JSON object per change, per machine. It is the full list of sessions, not a 
 
 - [README](https://github.com/DVP-Th30/tallylight/blob/main/README.md): install, quick start, privacy
 - [Protocol](https://github.com/DVP-Th30/tallylight/blob/main/docs/PROTOCOL.md): pairing, messages, fields
+- [Menu bar example](https://github.com/DVP-Th30/tallylight/tree/main/examples/menubar): 30 lines of shell over the local HTTP port
+- [Rust screen example](https://github.com/DVP-Th30/tallylight/blob/main/crates/tallylight-client/examples/needs_you.rs): pair, persist the key and ticket, react when an agent waits
+- [Running your own relay](https://github.com/DVP-Th30/tallylight/blob/main/docs/RELAY.md)
 - [Releases](https://github.com/DVP-Th30/tallylight/releases): binaries for Linux and macOS
