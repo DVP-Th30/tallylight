@@ -97,6 +97,11 @@ struct Running {
     screen: Arc<OnceCell<Arc<Screen>>>,
 }
 
+/// Dernières sessions reçues de chaque machine. Gardées d'un [`Tallylight::start`] à l'autre :
+/// au rallumage, l'écran montre aussitôt le dernier état connu au lieu d'une liste vide le temps
+/// de se reconnecter (ou indéfiniment si la machine ne répond plus).
+type Known = Arc<Mutex<HashMap<String, Vec<Session>>>>;
+
 /// Réglage refusé à la création de [`Tallylight`].
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum ConfigError {
@@ -112,6 +117,7 @@ pub struct Tallylight {
     name: String,
     relays: Relays,
     running: Mutex<Running>,
+    known: Known,
 }
 
 #[uniffi::export]
@@ -184,6 +190,7 @@ impl Tallylight {
         if let Some(task) = running.tasks.remove(&id) {
             task.abort();
         }
+        self.known.lock().unwrap().remove(&id);
         update(&self.data_dir, |machines| {
             let before = machines.len();
             machines.retain(|machine| machine.id != id);
@@ -225,6 +232,7 @@ impl Tallylight {
             name,
             relays,
             running: Mutex::new(Running::default()),
+            known: Known::default(),
         })
     }
 
@@ -242,15 +250,22 @@ impl Tallylight {
             relays: self.relays.clone(),
             screen: running.screen.clone(),
             listener,
+            known: self.known.clone(),
             machine: Machine {
                 name: load(&self.data_dir)
                     .into_iter()
                     .find(|machine| machine.id == id)
                     .map(|machine| machine.name)
                     .unwrap_or_default(),
-                id: id.clone(),
                 link: Link::Connecting,
-                sessions: Vec::new(),
+                sessions: self
+                    .known
+                    .lock()
+                    .unwrap()
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_default(),
+                id: id.clone(),
             },
         };
         running
@@ -266,6 +281,7 @@ struct Follower {
     relays: Relays,
     screen: Arc<OnceCell<Arc<Screen>>>,
     listener: Arc<dyn Listener>,
+    known: Known,
     machine: Machine,
 }
 
@@ -331,6 +347,10 @@ impl Follower {
                                 }
                                 self.machine.link = link;
                                 self.machine.sessions = convert(snapshot.sessions);
+                                self.known.lock().unwrap().insert(
+                                    self.machine.id.clone(),
+                                    self.machine.sessions.clone(),
+                                );
                                 self.listener.on_machine(self.machine.clone());
                             }
                             None => self.link(link),
@@ -604,6 +624,58 @@ mod tests {
                 .unwrap()
                 .starts_with("[{")
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    struct Collect(Mutex<Vec<Machine>>);
+
+    impl Listener for Collect {
+        fn on_machine(&self, machine: Machine) {
+            self.0.lock().unwrap().push(machine);
+        }
+        fn on_machine_removed(&self, _id: String) {}
+    }
+
+    #[test]
+    fn the_last_known_sessions_survive_a_restart() {
+        let dir = std::env::temp_dir().join(format!("tallylight-ffi-known-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        save(&dir, &[saved("serveur")]);
+        let screen = Tallylight::new(dir.to_string_lossy().to_string(), "écran".into());
+        let session = Session {
+            id: "s1".into(),
+            agent: "claude-code".into(),
+            project: "kept".into(),
+            cwd: "/kept".into(),
+            title: None,
+            state: "working".into(),
+            tool: None,
+            detail: None,
+            last_message: None,
+            url: None,
+            model: None,
+            updated_at: 1,
+        };
+        screen
+            .known
+            .lock()
+            .unwrap()
+            .insert("serveur".into(), vec![session]);
+
+        // Au rallumage, la machine s'annonce aussitôt avec ses dernières sessions, pas vide
+        let listener = Arc::new(Collect(Mutex::new(Vec::new())));
+        screen.start(listener.clone());
+        std::thread::sleep(Duration::from_millis(200));
+        screen.stop();
+        let first = listener.0.lock().unwrap()[0].clone();
+        assert_eq!(first.link, Link::Connecting);
+        assert_eq!(first.sessions.len(), 1);
+        assert_eq!(first.sessions[0].project, "kept");
+
+        // Une machine oubliée ne laisse rien derrière elle
+        screen.forget("serveur".into());
+        assert!(screen.known.lock().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
