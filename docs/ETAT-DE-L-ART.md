@@ -27,11 +27,11 @@ Vide constaté : aucune brique ne réunit binaire unique, plusieurs agents, éta
 
 ## Hooks des agents
 - **Claude Code** ([doc](https://code.claude.com/docs/en/hooks)) : hooks `command`, `http`, `mcp_tool`, `prompt`, `agent`. Champs communs `session_id`, `cwd`, `transcript_path`, `hook_event_name`. Utiles : `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PermissionRequest` (réponse `allow`/`deny`, bloquant jusqu'à 600 s par défaut), `Notification` (`permission_prompt`, `idle_prompt`), `Stop`, `StopFailure`, `SessionEnd`. Les hooks s'appliquent aussi aux sous-agents.
-- **Codex** : mêmes noms et mêmes champs, types `command` et `mcp_tool` (pas de `http`).
-- **Copilot CLI** : lit directement `.claude/settings.json` ; type `http` disponible.
-- **Cursor** : charge les hooks Claude, sauf `Notification` et `PermissionRequest`.
-- **OpenCode** : API HTTP et flux SSE plutôt que des hooks.
-- Socle portable : `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SessionEnd`.
+- **Codex** ([doc](https://developers.openai.com/codex/hooks)) : format repris de Claude Code, dans `~/.codex/hooks.json` ou la table `[hooks]` de `config.toml` ; types `command` et `mcp_tool` (pas de `http`). Les noms ne sont pas tous les mêmes : `Interrupt`, `PreModelRequest` et `PostModelRequest` en plus ; ni `Notification`, ni `StopFailure`, ni `PostToolUseFailure`. Chaque événement porte `model`. Un hook nouveau ou modifié ne tourne qu'après approbation par l'utilisateur. Corrigé le 2026-11-22 d'après la doc et le dépôt openai/codex 0.171.0 (la version du 2026-11-17 disait « mêmes noms et mêmes champs ») : voir DECISIONS D16.
+- **Copilot CLI** ([doc](https://docs.github.com/en/copilot/reference/hooks-configuration)) : ses propres hooks dans `~/.copilot/hooks/*.json`, types `command` et `http` (`http://127.0.0.1` seulement avec `COPILOT_HOOK_ALLOW_LOCALHOST=1`), noms en camelCase (`agentStop`, `permissionRequest`, `errorOccurred`…), pas de champ modèle. Ne lit `.claude/settings.json` que dans le dépôt, pas dans le dossier de l'utilisateur. Relevé du 2026-11-22 (la version du 2026-11-17 disait « lit directement `.claude/settings.json` »), à revérifier avant de coder.
+- **Cursor** ([doc](https://cursor.com/docs/agent/hooks)) : ses propres hooks dans `~/.cursor/hooks.json`, type `command` seulement (pas de `http`) ; charge aussi les hooks Claude, sauf `Notification` et `PermissionRequest` : aucun événement ne dit qu'il attend l'utilisateur. Relevé du 2026-11-22, à revérifier avant de coder.
+- **OpenCode** (dépôt passé à `anomalyco/opencode`) : API HTTP et flux SSE plutôt que des hooks ; extensions en JavaScript, deux lignes de versions (1.x et 2.x) aux interfaces différentes. Relevé du 2026-11-22, à revérifier avant de coder.
+- Socle portable : `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SessionEnd` pour Claude Code et Codex ; Copilot CLI et Cursor ont les mêmes étapes sous d'autres noms.
 
 ## Réseau
 - **iroh 1.4.1** (1.0 le 2026-06-15, MIT/Apache) : Linux, macOS, Windows, Android, iOS ; liaisons Kotlin et Swift (socle QUIC seulement) ; navigateur par relais ; ESP32 hors réseau local seulement avec PSRAM.

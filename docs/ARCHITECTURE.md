@@ -12,12 +12,13 @@ Le lien clé en main entre n'importe quel agent de code et n'importe quel écran
 - **Réveil (optionnel, plus tard)** — petit service à déployer par l'éditeur d'une application, avec sa propre clé FCM/APNs, pour notifier un téléphone en veille.
 
 ## En code aujourd'hui
-- `crates/tallylight-core` — modèle partagé : `State` (vocabulaire A2A), `Session`, `Snapshot`, et `claude::change` qui traduit un hook de Claude Code en changement d'état (fonction pure, testée).
+- `crates/tallylight-core` — modèle partagé : `State` (vocabulaire A2A), `Session`, `Snapshot`, et une traduction par agent d'un hook en changement d'état (fonctions pures, testées) : `claude::change` pour Claude Code, `codex::change` pour Codex, qui reprend le même corps d'événement (`claude::HookEvent`).
 - `crates/tallylight` — le binaire :
-  - `tallylight daemon [--port N] [--relay R]` : reçoit les hooks sur `http://127.0.0.1:47700/hooks/claude`, tient les sessions (`store.rs`), sert `GET /sessions`, et pousse (le port local est ouvert dès le lancement, le réseau est joint ensuite en tâche de fond, décision D10) un instantané JSON par ligne à chaque écran appairé connecté par iroh (ALPN `tallylight/state/1`). Données dans `~/.local/share/tallylight/` : `key` (identité, donc ticket stable), `ticket`, `devices.json` (écrans autorisés).
+  - `tallylight daemon [--port N] [--relay R]` : reçoit les hooks sur `http://127.0.0.1:47700/hooks/claude` (Claude Code) et `/hooks/codex` (Codex), tient les sessions (`store.rs`), sert `GET /sessions`, et pousse (le port local est ouvert dès le lancement, le réseau est joint ensuite en tâche de fond, décision D10) un instantané JSON par ligne à chaque écran appairé connecté par iroh (ALPN `tallylight/state/1`). Données dans `~/.local/share/tallylight/` : `key` (identité, donc ticket stable), `ticket`, `devices.json` (écrans autorisés).
   - `tallylight watch [--relay R] [appairage]` : écran terminal ; suit cette machine si son démon répond (il fournit lui-même l'appairage), toutes les machines déjà appairées depuis ce terminal, et celle de la chaîne donnée en argument (vérifiée tout de suite : un code faux ou périmé est signalé). Une tâche par machine, reconnexion après coupure (attente de 2 à 60 s, tentative bornée à 10 s) ; chaque machine affiche son lien (« relais », « hors ligne », « non appairé »). Les sessions qui attendent l'utilisateur passent en tête. L'écran garde sa propre identité (`screen-key`) et la liste des machines appairées (`machines`).
   - `tallylight pair` : affiche un QR et une chaîne d'appairage à usage unique ; `tallylight devices` et `tallylight unpair <identité>` gèrent les écrans autorisés (`devices.rs`, décision D8). Ces commandes parlent au démon par son port local (`local.rs`).
-  - `tallylight install [--no-service] [--relay R]` / `uninstall` (`install.rs`) : ajoute ou retire les hooks dans les réglages de Claude Code (sauvegarde, ordre des clés conservé, hooks des autres outils intacts) et installe le service (systemd utilisateur sous Linux, agent de lancement sous macOS). `tallylight hooks` affiche le bloc pour qui préfère le coller à la main.
+  - `tallylight install [--no-service] [--relay R]` / `uninstall` (`install.rs`) : ajoute ou retire les hooks dans les réglages de Claude Code (sauvegarde, ordre des clés conservé, hooks des autres outils intacts), fait de même dans le `hooks.json` de Codex quand Codex est sur la machine (dossier `~/.codex` présent ou `codex` dans le `PATH`), et installe le service (systemd utilisateur sous Linux, agent de lancement sous macOS). `tallylight hooks [claude|codex]` affiche les blocs pour qui préfère les coller à la main.
+  - `tallylight hook codex [--port N]` (`local.rs`) : la commande que Codex lance à chaque événement, faute de hook `http`. Elle lit l'événement sur son entrée, en retire la sortie de l'outil et le poste au démon ; elle ne dit rien et sort toujours en succès, démon arrêté compris (décision D16).
   - `tallylight name [nom | --reset]` : nom de la machine sur les écrans (« Mac » plutôt que le nom système « Th30 »), gardé dans le fichier `name` du dossier de données et repris aussitôt par le démon (`POST /name/reload`), sans redémarrage.
   - Relais iroh (`--relay R`, sinon `TALLYLIGHT_RELAY`, décision D11) : `n0` (relais publics de l'éditeur d'iroh, le défaut) ou une ou plusieurs adresses `https://…` séparées par des virgules, schéma, hôte et port seulement. Le démon annonce le relais joint dans son ticket ; `install` inscrit le choix dans le service et le conserve lors d'une réinstallation sans `--relay`.
 - `crates/tallylight-client` — la bibliothèque d'écran : `Screen::new(clé, nom)`, `screen.watch(appairage)` puis `watch.next()` pour chaque instantané. `tallylight watch` repose dessus. Le protocole partagé (`Hello`, `Welcome`, ALPN) vit dans `tallylight-core::protocol`.
@@ -29,6 +30,10 @@ Le lien clé en main entre n'importe quel agent de code et n'importe quel écran
 Chaque session porte aussi `tool` et `detail` : ce que fait l'agent, ou ce pour quoi il attend une autorisation, en une ligne de 140 caractères au plus tirée des arguments de l'outil (description d'une commande, nom d'un fichier, motif cherché, question posée). S'y ajoutent `last_message` (les 600 premiers caractères du dernier message de l'agent, à la fin d'un tour, effacés au tour suivant) et `url` (l'adresse de la session dans l'application Claude, pour les sessions suivies par Remote Control ; tirée de la fiche de session). Enfin `model` : l'identifiant du dernier modèle qui a répondu (« claude-opus-5-5 »), lu en fin de transcription (`transcript.rs`, décision D13) ; la bibliothèque d'écran le donne en clair (« Opus 5.5 », `model_label`). Par précaution, une commande sans description n'est résumée que par le nom du programme, et rien du contenu des fichiers ni de la sortie des commandes ne sort de la machine.
 
 Correspondance Claude Code → état : `UserPromptSubmit`, `PreToolUse`, `PostToolUse` → `working` ; `PermissionRequest` et `Notification` (`permission_prompt`, `elicitation_*`) → `input-required` ; `Stop` → `completed` ; `StopFailure` → `failed` ; `SessionEnd` → session retirée. Les `Stop` de sous-agents sont ignorés.
+
+Correspondance Codex → état (`agent` vaut `codex`) : `UserPromptSubmit`, `PreToolUse`, `PostToolUse` → `working` ; `PermissionRequest` → `input-required` ; `Stop` → `completed` ; `Interrupt` → `canceled` ; `SessionEnd` → session retirée ; `SubagentStop` et les autres événements sont ignorés. Jamais `failed` : Codex n'a pas d'événement pour un tour qui échoue. Le modèle vient de l'événement (`model`), pas de la transcription. Pas de titre, pas d'adresse, et pas de fiche de session : le rapprochement de D9 ne s'applique pas, une session Codex n'existe que par ses hooks (détails et limites en D16).
+
+Vérifié le 2026-11-22 sous macOS avec le vrai Codex 0.171.0 et un faux modèle local (aucun compte OpenAI) : hooks posés par `tallylight install`, puis au travail (Bash, « echo ») → fini avec le dernier message ; demande d'autorisation dans l'interface du terminal → « attend une réponse » avec le motif de la demande ; interruption → `Interrupt` reçu ; fin de `codex exec` → session retirée. Pas encore vu avec un vrai modèle d'OpenAI.
 
 Vérifié sous macOS le 2026-11-18 : agent de lancement, quatre sessions ouvertes vues par `tallylight watch`, Encre appairé en lien direct.
 
@@ -43,6 +48,7 @@ Limites connues :
 - L'interruption par Échap est déduite du statut de la fiche de session ; pas encore observée en vrai.
 - Machine hors ligne au lancement du démon : les sessions sont suivies normalement, mais `tallylight pair` et `tallylight watch` sans argument échouent (après 15 s d'attente) tant que le réseau n'a pas été joint une première fois (décision D10).
 - Démon arrêté : Claude Code affiche une erreur de hook non bloquante dans sa transcription.
+- Codex : pas d'état `failed`, session visible seulement à partir de son premier message, et session d'un processus tué affichée jusqu'à 12 heures dans son dernier état (D16).
 
 ## Flux
 1. L'agent déclenche un hook (Claude Code : hook de type `http`, POST local vers le cœur).
@@ -53,9 +59,9 @@ Limites connues :
 Deux entrées produisent le même format : les hooks (aucune coopération de l'agent requise) et une entrée directe pour les harnais qui veulent publier leur état eux-mêmes.
 
 ## Périmètre de la première version
-- Claude Code seul, en lecture seule.
+- Claude Code d'abord, en lecture seule ; Codex ajouté le 2026-11-22 (D16).
 - Linux et macOS pour le cœur ; premier écran : une commande de terminal ; démo : pastille dans le launcher Android Encre.
-- Hors périmètre : Windows, iOS, autres agents, approbation à distance, voix, notifications sur téléphone verrouillé.
+- Hors périmètre : Windows, iOS, les agents autres que Claude Code et Codex, approbation à distance, voix, notifications sur téléphone verrouillé.
 
 ## Premier jalon
 Prouver le point le plus risqué : deux machines (serveurdvp et un téléphone Android) s'appairent par code ou QR et s'échangent un état via iroh.

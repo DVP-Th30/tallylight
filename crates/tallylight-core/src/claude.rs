@@ -28,6 +28,9 @@ pub struct HookEvent {
     /// Transcription de la session (JSONL), d'où l'on tire le modèle utilisé.
     #[serde(default)]
     pub transcript_path: Option<String>,
+    /// Modèle de la session : Codex le donne dans chaque événement, Claude Code non.
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 /// Effet d'un événement sur la session qui l'a émis.
@@ -117,10 +120,7 @@ fn summary(event: &HookEvent) -> Option<String> {
     let found = match event.tool_name.as_deref()? {
         // Sans description, on ne montre que le nom du programme : une commande entière peut
         // contenir un mot de passe ou un jeton
-        "Bash" => text("description").or_else(|| {
-            let program = text("command")?.split_whitespace().next()?;
-            Some(program.rsplit('/').next().unwrap_or(program))
-        }),
+        "Bash" => text("description").or_else(|| program(text("command")?)),
         "Read" | "Edit" | "Write" | "NotebookEdit" => file("file_path").or(file("notebook_path")),
         "Grep" | "Glob" => text("pattern"),
         "WebFetch" => text("url"),
@@ -134,6 +134,17 @@ fn summary(event: &HookEvent) -> Option<String> {
         "ExitPlanMode" => Some("plan to approve"),
         _ => None,
     }?;
+    one_line(found)
+}
+
+/// Nom du programme d'une ligne de commande, sans son chemin ni ses arguments.
+pub(crate) fn program(command: &str) -> Option<&str> {
+    let program = command.split_whitespace().next()?;
+    Some(program.rsplit('/').next().unwrap_or(program))
+}
+
+/// Première ligne d'un texte, coupée à la longueur d'un résumé.
+pub(crate) fn one_line(found: &str) -> Option<String> {
     let line = found.lines().next().unwrap_or_default().trim();
     if line.is_empty() {
         return None;

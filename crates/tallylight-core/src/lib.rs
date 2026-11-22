@@ -2,6 +2,7 @@
 //! Voir `docs/DECISIONS.md` (D2) pour le choix du vocabulaire.
 
 pub mod claude;
+pub mod codex;
 pub mod protocol;
 
 use serde::{Deserialize, Serialize};
@@ -44,7 +45,7 @@ impl State {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
     pub id: String,
-    /// Agent qui tient la session (« claude-code »).
+    /// Agent qui tient la session (« claude-code », « codex »).
     pub agent: String,
     /// Dossier de travail de la session.
     pub cwd: String,
