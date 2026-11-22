@@ -25,8 +25,10 @@ let package = Package(
                 .linkedFramework("Security"),
                 .linkedFramework("SystemConfiguration"),
                 .linkedFramework("CoreFoundation"),
-                // Sur iOS, la bibliothèque réseau énumère les interfaces par Network.framework
+                // Sur iOS, la bibliothèque réseau énumère les interfaces par Network.framework et lit
+                // les serveurs DNS par libresolv
                 .linkedFramework("Network", .when(platforms: [.iOS])),
+                .linkedLibrary("resolv", .when(platforms: [.iOS])),
             ]
         ),
     ]

@@ -53,9 +53,9 @@ build_ios() {
     local slice
     slice="$(ls -d "$FRAMEWORK"/$1 2>/dev/null | head -n1)"
     [ -n "$slice" ] || fail "pas de tranche $1 dans le xcframework"
-    xcrun swiftc -target "$2" -sdk "$(xcrun --sdk "$3" --show-sdk-path)" \
+    xcrun --sdk "$3" swiftc -target "$2" -sdk "$(xcrun --sdk "$3" --show-sdk-path)" \
         -I "$slice/Headers" -L "$slice" -ltallylight_ffi \
-        -framework Security -framework SystemConfiguration -framework CoreFoundation -framework Network \
+        -framework Security -framework SystemConfiguration -framework CoreFoundation -framework Network -lresolv \
         apple/Sources/TallylightKit/Tallylight.swift apple/smoke/Sources/tallylight-smoke/main.swift \
         -o "$4"
     echo "lié pour $2 : $(du -h "$4" | cut -f1)"
