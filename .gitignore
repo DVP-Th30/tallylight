@@ -3,3 +3,9 @@ target/
 *.swp
 secrets.*
 .env
+
+# Produits par apple/build-xcframework.sh, et dossiers de travail de SwiftPM
+apple/TallylightFFI.xcframework/
+apple/Sources/
+.build/
+Package.resolved

@@ -11,7 +11,7 @@ Version: 0.1.0. Protocol version 1 (ALPN `tallylight/state/1`). It can still cha
 
 - Agents: Claude Code only. Codex, Copilot CLI, Cursor and OpenCode are planned, not tested.
 - Machines (where agents run): Linux and macOS, x86_64 and arm64. No Windows.
-- Screens: any Rust program (`tallylight-client` crate), Android (Kotlin bindings), a terminal (`tallylight watch`), or anything that can read the local HTTP port on the same machine.
+- Screens: any Rust program (`tallylight-client` crate), Android (Kotlin bindings), a terminal (`tallylight watch`), or anything that can read the local HTTP port on the same machine. Swift bindings for iOS and macOS exist: they build and pass a macOS test, not yet tried in a real iOS app.
 - Read-only: a screen shows state. It cannot answer the agent.
 
 ## Install on each machine where agents run
@@ -26,7 +26,7 @@ tallylight pair
 - `tallylight pair` prints a QR code and a pairing string `<ticket>#<code>`. The code works once and expires after five minutes. After pairing, the screen reconnects with the ticket alone.
 - Other commands: `tallylight watch`, `tallylight devices`, `tallylight unpair <id>`, `tallylight name <name>`, `tallylight uninstall`, `tallylight --help`.
 
-## Three ways to build a screen
+## Four ways to build a screen
 
 ### 1. Same machine: local HTTP (simplest)
 
@@ -79,7 +79,34 @@ tally.pair(scannedQr)
 
 On Android 17 (target SDK 37), the app needs `android.permission.ACCESS_LOCAL_NETWORK`, or connections on the same Wi-Fi silently fall back to a relay.
 
-There are no Swift, JavaScript or Python bindings yet. From those languages, use the local HTTP port, or implement the protocol on top of an iroh endpoint: https://github.com/DVP-Th30/tallylight/blob/main/docs/PROTOCOL.md
+### 4. iOS and macOS, in Swift
+
+`apple/build-xcframework.sh` in the repository (macOS with full Xcode; Rust targets `aarch64-apple-ios`, `aarch64-apple-ios-sim`, `aarch64-apple-darwin`, `x86_64-apple-darwin`) fills the Swift package in `apple/`: `TallylightFFI.xcframework` (static library) and the generated `Tallylight.swift`. Add that folder to the app as a local package (product `TallylightKit`); it is not published to a package registry, and the repository URL cannot be added as a remote package. Minimum iOS 15, macOS 12. Same API as Kotlin.
+
+```swift
+import TallylightKit
+
+final class Screen: Listener {
+    func onMachine(machine: Machine) {
+        for session in machine.sessions where session.state == "input-required" {
+            show("\(machine.name) · \(session.title ?? session.project) needs you")
+        }
+    }
+    func onMachineRemoved(id: String) {}
+}
+
+let tally = Tallylight(dataDir: dataDir, name: "Kitchen iPad")
+tally.start(listener: Screen())
+tally.pair(pairing: scannedQr)
+```
+
+`dataDir` is a private folder of the app (for example a subfolder of Application Support). Listener calls arrive on a library thread: hop to the main actor before touching the UI. Call `stop()` when the app goes to the background and `start()` again when it returns.
+
+Status, to tell the user: the Swift bindings build and pass an end-to-end test on macOS (pairing, sessions received). They have not been tried in a real iOS app yet.
+
+On iOS, add `NSLocalNetworkUsageDescription` to `Info.plist`: Apple counts UDP sent to an address on the same Wi-Fi as local network access (iOS 14 and later), which the user must allow; without it, expect the connection to stay on a relay instead of going direct. `NSBonjourServices` and the multicast entitlement are not needed. This has not been checked on a device yet. A sandboxed macOS app needs the `com.apple.security.network.client` and `com.apple.security.network.server` entitlements.
+
+There are no JavaScript or Python bindings yet. From those languages, use the local HTTP port, or implement the protocol on top of an iroh endpoint: https://github.com/DVP-Th30/tallylight/blob/main/docs/PROTOCOL.md
 
 ## Snapshot
 

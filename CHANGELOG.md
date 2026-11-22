@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Swift bindings (UniFFI) for iOS and macOS: `apple/build-xcframework.sh` builds a Swift package (`TallylightFFI.xcframework` and `TallylightKit`). Tested on macOS, not yet tried in a real iOS app.
+
 ## 0.1.0
 
 First public version.

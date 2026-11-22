@@ -129,7 +129,28 @@ tally.start(object : Listener {
 tally.pair(scannedQr)
 ```
 
-`android/build-aar.sh` builds a ready-to-use `.aar` (native library, Kotlin bindings, permissions, R8 rules). The compressed library weighs about 3.4 MB. Swift bindings are next.
+`android/build-aar.sh` builds a ready-to-use `.aar` (native library, Kotlin bindings, permissions, R8 rules). The compressed library weighs about 3.4 MB.
+
+For iOS and macOS, the same crate comes as a Swift package:
+
+```swift
+import TallylightKit
+
+final class Screen: Listener {
+    func onMachine(machine: Machine) {
+        for session in machine.sessions where session.state == "input-required" {
+            show("\(machine.name) · \(session.title ?? session.project) needs you")
+        }
+    }
+    func onMachineRemoved(id: String) {}
+}
+
+let tally = Tallylight(dataDir: dataDir, name: "Kitchen iPad")
+tally.start(listener: Screen())
+tally.pair(pairing: scannedQr)
+```
+
+`apple/build-xcframework.sh` builds `TallylightFFI.xcframework` (iOS, iOS simulator, macOS) and the Swift bindings into `apple/`, which you then add to your app as a local package; releases will carry the same package as a zip. The Swift bindings are new: they build and pass an end-to-end test on macOS (pairing, sessions received), and have not been tried in a real iOS app yet. An iOS app should set `NSLocalNetworkUsageDescription` in its `Info.plist`, since reaching a machine on the same Wi-Fi counts as local network access.
 
 Building with an LLM? Point it at [llms.txt](https://dvp-th30.github.io/tallylight/llms.txt): the protocol, the states, the code and the limits in one file.
 
@@ -149,7 +170,7 @@ Found a security problem? See [SECURITY.md](SECURITY.md).
 |---|---|
 | Agents | Claude Code. Codex, Copilot CLI, Cursor and OpenCode are next and not tested yet. |
 | Machines | Linux and macOS. No Windows yet. |
-| Screens | Terminal (`tallylight watch`), Android through the Kotlin bindings, any Rust program. |
+| Screens | Terminal (`tallylight watch`), Android through the Kotlin bindings, any Rust program. Swift bindings for iOS and macOS: they build and pass a macOS test, not yet tried in a real iOS app. |
 | Direction | Read-only: screens show state, they can't answer the agent yet. |
 | Network | Tested on the same Wi-Fi (8–13 ms, direct), across an office firewall and on 5G (direct after a few seconds through a relay). |
 
@@ -157,7 +178,7 @@ Known limits: a phone that is asleep is not woken up (no push notifications yet)
 
 ## Roadmap
 
-- **Next:** more agents; Swift bindings and an iOS screen; a packaged self-hosted relay.
+- **Next:** more agents; an iOS screen built on the Swift bindings; a packaged self-hosted relay.
 - **Later:** a small Bluetooth desk display (ESP32); an optional wake-up service for sleeping phones, run by each app with its own keys; answering a permission request from the screen.
 
 ## Build from source

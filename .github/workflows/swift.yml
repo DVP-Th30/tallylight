@@ -1,0 +1,60 @@
+name: swift
+
+# Paquet Swift (xcframework et liaisons) : construit pour iOS, le simulateur et macOS, puis essayé de
+# bout en bout sur macOS et dans le simulateur. Limité aux changements qui le concernent : une
+# machine macOS est lente et quatre compilations optimisées prennent du temps.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apple/**"
+      - "crates/tallylight-ffi/**"
+      - "crates/tallylight-client/**"
+      - "crates/tallylight-core/**"
+      - "crates/tallylight-bindgen/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/swift.yml"
+  pull_request:
+    paths:
+      - "apple/**"
+      - "crates/tallylight-ffi/**"
+      - "crates/tallylight-client/**"
+      - "crates/tallylight-core/**"
+      - "crates/tallylight-bindgen/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/swift.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: swift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  xcframework:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios, aarch64-apple-ios-sim, aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - run: xcodebuild -version && swift --version
+      - name: Paquet Swift (iOS, simulateur, macOS)
+        run: apple/build-xcframework.sh
+      - name: Contenu du xcframework
+        run: |
+          plutil -p apple/TallylightFFI.xcframework/Info.plist
+          find apple/TallylightFFI.xcframework -type f -exec ls -l {} +
+      - name: Essai sur macOS (démon d'essai, appairage, sessions reçues)
+        run: apple/smoke-test.sh macos
+      - name: Édition de liens pour iPhone
+        run: apple/smoke-test.sh ios-link
+      - name: Essai dans le simulateur iOS
+        run: apple/smoke-test.sh ios-simulator
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tallylight-swift
+          path: target/apple/tallylight-swift-*.zip
+          if-no-files-found: error

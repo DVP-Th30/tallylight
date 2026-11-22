@@ -1,0 +1,8 @@
+# Réglages du générateur de liaisons (UniFFI). Kotlin garde les valeurs par défaut.
+
+[bindings.swift]
+# Fichier Swift généré : Tallylight.swift
+module_name = "Tallylight"
+# Module C que le fichier Swift importe : celui qu'expose TallylightFFI.xcframework
+ffi_module_name = "TallylightFFI"
+ffi_module_filename = "TallylightFFI"
