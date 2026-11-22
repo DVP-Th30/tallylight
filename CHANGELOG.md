@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Swift bindings (UniFFI) for iOS and macOS: `apple/build-xcframework.sh` builds a Swift package (`TallylightFFI.xcframework` and `TallylightKit`). Tested on macOS, not yet tried in a real iOS app.
+- Swift bindings (UniFFI) for iOS and macOS: `apple/build-xcframework.sh` builds a Swift package (`TallylightFFI.xcframework` and `TallylightKit`). Tested on macOS and in the iOS simulator, not yet tried in a real iOS app. Requires iroh 1.4.2 (1.4.1 does not compile for iOS).
 
 ## 0.1.0
 

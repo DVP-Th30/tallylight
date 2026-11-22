@@ -152,7 +152,7 @@ tally.start(listener: Screen())
 tally.pair(pairing: scannedQr)
 ```
 
-`apple/build-xcframework.sh` builds `TallylightFFI.xcframework` (iOS, iOS simulator, macOS) and the Swift bindings into `apple/`, which you then add to your app as a local package; releases will carry the same package as a zip. The Swift bindings are new: they build and pass an end-to-end test on macOS (pairing, sessions received), and have not been tried in a real iOS app yet. An iOS app should set `NSLocalNetworkUsageDescription` in its `Info.plist`, since reaching a machine on the same Wi-Fi counts as local network access.
+`apple/build-xcframework.sh` builds `TallylightFFI.xcframework` (iOS, iOS simulator, macOS) and the Swift bindings into `apple/`, which you then add to your app as a local package; releases after 0.1.0 carry the same package as a zip. The Swift bindings are new: they build and pass an end-to-end test (pairing, sessions received) on macOS and in the iOS simulator, as a command-line program; they have not been tried in a real iOS app or on a device yet. An iOS app should set `NSLocalNetworkUsageDescription` in its `Info.plist`, since reaching a machine on the same Wi-Fi counts as local network access.
 
 ### Examples
 
@@ -177,7 +177,7 @@ Found a security problem? See [SECURITY.md](SECURITY.md).
 |---|---|
 | Agents | Claude Code. Codex, Copilot CLI, Cursor and OpenCode are next and not tested yet. |
 | Machines | Linux and macOS. No Windows yet. |
-| Screens | Terminal (`tallylight watch`), Android through the Kotlin bindings, any Rust program. Swift bindings for iOS and macOS: they build and pass a macOS test, not yet tried in a real iOS app. |
+| Screens | Terminal (`tallylight watch`), Android through the Kotlin bindings, any Rust program. Swift bindings for iOS and macOS: they build and pass a test on macOS and in the iOS simulator, not yet tried in a real iOS app. |
 | Direction | Read-only: screens show state, they can't answer the agent yet. |
 | Network | Tested on the same Wi-Fi (8–13 ms, direct), across an office firewall and on 5G (direct after a few seconds through a relay). |
 

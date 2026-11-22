@@ -11,7 +11,7 @@ Version: 0.1.0. Protocol version 1 (ALPN `tallylight/state/1`). It can still cha
 
 - Agents: Claude Code only. Codex, Copilot CLI, Cursor and OpenCode are planned, not tested.
 - Machines (where agents run): Linux and macOS, x86_64 and arm64. No Windows.
-- Screens: any Rust program (`tallylight-client` crate), Android (Kotlin bindings), a terminal (`tallylight watch`), or anything that can read the local HTTP port on the same machine. Swift bindings for iOS and macOS exist: they build and pass a macOS test, not yet tried in a real iOS app.
+- Screens: any Rust program (`tallylight-client` crate), Android (Kotlin bindings), a terminal (`tallylight watch`), or anything that can read the local HTTP port on the same machine. Swift bindings for iOS and macOS exist: they build and pass a test on macOS and in the iOS simulator, not yet tried in a real iOS app.
 - Read-only: a screen shows state. It cannot answer the agent.
 
 ## Install on each machine where agents run
@@ -102,7 +102,7 @@ tally.pair(pairing: scannedQr)
 
 `dataDir` is a private folder of the app (for example a subfolder of Application Support). Listener calls arrive on a library thread: hop to the main actor before touching the UI. Call `stop()` when the app goes to the background and `start()` again when it returns.
 
-Status, to tell the user: the Swift bindings build and pass an end-to-end test on macOS (pairing, sessions received). They have not been tried in a real iOS app yet.
+Status, to tell the user: the Swift bindings build and pass an end-to-end test (pairing, sessions received) on macOS and in the iOS simulator, as a command-line program. They have not been tried in a real iOS app or on a real device yet.
 
 On iOS, add `NSLocalNetworkUsageDescription` to `Info.plist`: Apple counts UDP sent to an address on the same Wi-Fi as local network access (iOS 14 and later), which the user must allow; without it, expect the connection to stay on a relay instead of going direct. `NSBonjourServices` and the multicast entitlement are not needed. This has not been checked on a device yet. A sandboxed macOS app needs the `com.apple.security.network.client` and `com.apple.security.network.server` entitlements.
 
