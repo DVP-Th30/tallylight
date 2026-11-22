@@ -26,6 +26,7 @@ Le service est une unité utilisateur systemd sous Linux, un agent de lancement 
 ## Intégration continue
 - `ci.yml` : format, clippy et tests à chaque poussée sur `main` et à chaque demande de fusion. Un second travail, sur `windows-latest`, passe clippy et les tests des trois crates attendues sous Windows (`tallylight`, `tallylight-core`, `tallylight-client`), puis déroule `.github/scripts/smoke.ps1` (hooks, démon, un événement, appairage, dossiers par défaut de Windows) et `.github/scripts/service.ps1` (tâche planifiée : installation, relance, relais gardé, désinstallation).
 - `release.yml` : publie une version sur étiquette `v*` (voir « Publier une version »).
+- `swift.yml` : construit le paquet Swift (iOS, simulateur, macOS) et l'essaie, quand il est concerné (voir « Compiler pour iOS et macOS »).
 - `pages.yml` : publie `site/` sur GitHub Pages, seulement quand le dépôt est public.
 - `binaries.yml` : lancé à la main (`gh workflow run binaries`), construit `tallylight` pour macOS (Apple Silicon) et Linux et les dépose dans la version de développement `dev`. Pas automatique : une machine macOS compte dix fois dans le quota d'Actions.
 ```sh
@@ -35,7 +36,7 @@ gh release download dev -R DVP-Th30/tallylight -p 'tallylight-aarch64-apple-darw
 ## Publier une version
 1. Mettre la version dans `Cargo.toml` (`[workspace.package] version`, et les dépendances internes des crates), compléter `CHANGELOG.md`, committer.
 2. Répétition : `gh workflow run release` construit les cinq binaires sans rien publier (Linux x86_64 et arm64 en musl, donc statiques ; macOS Apple Silicon et Intel ; Windows x86_64). Sous Windows, la répétition installe aussi l'archive obtenue par `site/install.ps1` (servie localement, sous Windows PowerShell 5.1), déroule les deux scripts d'essai et rejoue l'installation par-dessus un service en marche.
-3. `git tag v0.1.0 && git push origin v0.1.0` : `release.yml` crée la version GitHub avec, par plateforme, `tallylight-<cible>.tar.gz` (`.zip` sous Windows) et son empreinte `.sha256`.
+3. `git tag v0.1.0 && git push origin v0.1.0` : `release.yml` crée la version GitHub avec, par plateforme, `tallylight-<cible>.tar.gz` (`.zip` sous Windows) et son empreinte `.sha256`. Le travail `swift` y joint `tallylight-swift-<version>.zip` (le paquet Swift) et son empreinte.
 4. `site/install.sh` (servi par GitHub Pages) télécharge la dernière version, vérifie l'empreinte et installe dans `~/.local/bin`. Il ne fonctionne qu'une fois le dépôt public et une version `v*` publiée. Sous Windows, `site/install.ps1` fait de même vers `%LOCALAPPDATA%\tallylight\bin` (`irm https://dvp-th30.github.io/tallylight/install.ps1 | iex`) ; il ne trouvera une archive qu'à partir de la première version publiée après la 0.1.0.
 
 `binaries.yml` (version `dev`) reste pour essayer la branche `main` sans publier.
@@ -93,6 +94,32 @@ Lancer sur le téléphone sans application, par adb :
 adb push target/aarch64-linux-android/release/tallylight-proto /data/local/tmp/
 adb shell /data/local/tmp/tallylight-proto connect <ticket>
 ```
+
+## Compiler pour iOS et macOS (Swift)
+`apple/build-xcframework.sh` (2026-11-22, décision D18) remplit le paquet Swift `apple/` : `TallylightFFI.xcframework` (bibliothèque statique `libtallylight_ffi.a`, profil `embed`, une tranche pour iPhone, une pour le simulateur, une pour macOS Apple Silicon et Intel réunis par `lipo`, chacune avec l'en-tête C) et `Sources/TallylightKit/Tallylight.swift` (liaisons générées par `tallylight-bindgen --language swift`, noms réglés dans `crates/tallylight-ffi/uniffi.toml`). Il produit aussi `target/apple/tallylight-swift-<version>.zip`, le paquet entier prêt à décompresser. Ni le xcframework ni le fichier Swift ne sont dans le dépôt.
+```sh
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin x86_64-apple-darwin
+apple/build-xcframework.sh
+apple/smoke-test.sh
+```
+- `--dry-run` affiche les étapes. Variables : `IOS_TARGETS`, `IOS_SIM_TARGETS`, `MACOS_TARGETS` (une liste vide retire la plateforme ; ajouter `x86_64-apple-ios` à `IOS_SIM_TARGETS` pour les simulateurs des Mac Intel), `IOS_MIN` (15.0), `MACOS_MIN` (12.0).
+- Les cibles iOS demandent Xcode complet : la bibliothèque de chiffrement (`ring`) compile du C contre le SDK de l'iPhone. Avec les seuls outils en ligne de commande, on ne construit que macOS (`IOS_TARGETS= IOS_SIM_TARGETS= apple/build-xcframework.sh`) et le script écrit lui-même le dossier du xcframework, faute de `xcodebuild -create-xcframework`.
+- `apple/smoke-test.sh` lance un démon d'essai (port 47796, dossier personnel temporaire), lui envoie un événement, appaire le programme `apple/smoke` (Swift, construit par SwiftPM sur le paquet) et attend qu'il reçoive la session. `ios-link` lie le même programme pour iPhone sans le lancer ; `ios-simulator` le fait tourner dans un simulateur.
+- CI : `swift.yml` (machine macOS, Xcode complet) déroule le script entier et les trois essais quand `apple/`, les crates de la bibliothèque ou `Cargo.lock` changent ; `release.yml` joint l'archive du paquet à chaque version.
+
+Côté application :
+- Ajouter le dossier `apple/` (ou l'archive décompressée) comme paquet local, produit `TallylightKit`, puis `import TallylightKit`. Le paquet lie `Security`, `SystemConfiguration` et `CoreFoundation`, plus `Network` et `libresolv` sur iOS (liste donnée par `rustc --print native-static-libs`, que le script affiche à chaque compilation).
+- Aucune initialisation propre à iOS : l'équivalent de `dev.tallylight.Android.init` n'existe pas (la doc d'iroh ne décrit ce besoin que pour Android).
+- **Réseau local sur iOS** : déclarer `NSLocalNetworkUsageDescription` dans `Info.plist`. Apple (note technique TN3179, révision du 2026-10-06) range l'envoi d'UDP vers une adresse du réseau local parmi les opérations soumises à l'autorisation « Réseau local » depuis iOS 14, quelle que soit l'API, et le système bloque l'opération tant que l'utilisateur n'a pas accepté. La clé donne le texte de la demande ; Apple écrit que toute application qui utilise le réseau local « should include » cette description. Ni `NSBonjourServices` (réservé à Bonjour) ni le droit `com.apple.developer.networking.multicast` (multidiffusion) ne sont nécessaires : la bibliothèque est compilée sans les options par défaut d'iroh, donc sans ouverture de ports sur la box (UPnP) ni recherche mDNS.
+- Ce point n'est **pas vérifié sur un iPhone**, et les sources se contredisent : l'application d'exemple de l'éditeur d'iroh (`n0-computer/hello-iroh-ffi`, README Swift) omet la clé en affirmant que le trafic QUIC direct ne déclenche pas la demande, alors que le ticket iroh #3474 (ouvert) rapporte la demande sans mDNS. Attendu en cas de refus, par analogie avec Android 17 (constaté, voir plus haut) : pas de lien direct sur le même Wi-Fi, tout passe par un relais. Le simulateur n'applique pas cette règle (TN3179) : seul un essai sur appareil tranchera.
+- macOS : la même règle existe depuis macOS 15 pour les applications ; un outil lancé depuis le Terminal en est dispensé (TN3179), ce qui est le cas de l'essai. Une application en bac à sable doit en plus demander `com.apple.security.network.client` et `com.apple.security.network.server` (doc d'iroh).
+- Non vérifié non plus : le manifeste de confidentialité exigé par l'App Store (API à « raison requise », dont les horodatages de fichiers et l'horloge système qu'utilise la bibliothèque standard de Rust ; ticket rust-lang/rust #114186, sans consigne officielle).
+
+Vérifié le 2026-11-22 sur un Mac Apple Silicon sans Xcode (outils en ligne de commande, Swift 6.3, Rust 1.99) : le script construit la tranche macOS (Apple Silicon et Intel, bibliothèque de 30 Mo pour les deux, archive du paquet de 9 Mo), `swift build` résout le xcframework, et `apple/smoke-test.sh` reçoit en Swift la session d'un démon d'essai, en lien direct. Les tranches iOS ne se compilent pas sur cette machine (pas de SDK).
+
+Vérifié le même jour en CI (`swift.yml`, run 45063515705, macOS 26 et Xcode 26.6) : les quatre compilations (environ 2 min 30 chacune), `xcodebuild -create-xcframework` avec les trois tranches `ios-arm64`, `ios-arm64-simulator` et `macos-arm64_x86_64` (bibliothèque de 15,6 Mo par tranche iOS, xcframework de 60 Mo, archive de 18 Mo), l'essai macOS sur ce xcframework, l'édition de liens du programme d'essai pour iPhone (exécutable de 7,6 Mo, ce que pèse la bibliothèque une fois liée) et le même essai de bout en bout dans un simulateur d'iPhone 17 Pro, en lien direct. Deux défauts trouvés et corrigés par ces essais : iroh 1.4.1 ne compilait pas pour iOS (décision D16) et il manquait `libresolv` à l'édition de liens.
+
+Pas vérifié : une vraie application iOS (le programme d'essai est une commande lancée par `simctl spawn`, sans `Info.plist` ni bac à sable), un iPhone réel, l'autorisation « Réseau local », l'ajout du paquet dans un projet Xcode (seuls `swift build` sur macOS et `swiftc` pour iOS ont servi), la tranche Intel du simulateur.
 
 ## Installation sur serveurdvp (2026-11-17)
 - Binaire : `~/.local/bin/tallylight` (copie de `target/release/tallylight`).

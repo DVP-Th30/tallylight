@@ -153,7 +153,28 @@ tally.start(object : Listener {
 tally.pair(scannedQr)
 ```
 
-Each [release](https://github.com/DVP-Th30/tallylight/releases) ships a ready-to-use `.aar` (native library for arm64 and x86_64, Kotlin bindings, permissions, R8 rules); `android/build-aar.sh` builds it from source. The app adds JNA (`net.java.dev.jna:jna:5.x@aar`). Swift bindings are next.
+Each [release](https://github.com/DVP-Th30/tallylight/releases) ships a ready-to-use `.aar` (native library for arm64 and x86_64, Kotlin bindings, permissions, R8 rules); `android/build-aar.sh` builds it from source. The app adds JNA (`net.java.dev.jna:jna:5.x@aar`).
+
+For iOS and macOS, the same crate comes as a Swift package:
+
+```swift
+import TallylightKit
+
+final class Screen: Listener {
+    func onMachine(machine: Machine) {
+        for session in machine.sessions where session.state == "input-required" {
+            show("\(machine.name) · \(session.title ?? session.project) needs you")
+        }
+    }
+    func onMachineRemoved(id: String) {}
+}
+
+let tally = Tallylight(dataDir: dataDir, name: "Kitchen iPad")
+tally.start(listener: Screen())
+tally.pair(pairing: scannedQr)
+```
+
+`apple/build-xcframework.sh` builds `TallylightFFI.xcframework` (iOS, iOS simulator, macOS) and the Swift bindings into `apple/`, which you then add to your app as a local package; releases after 0.1.0 carry the same package as a zip. The Swift bindings are new: they build and pass an end-to-end test (pairing, sessions received) on macOS and in the iOS simulator, as a command-line program; they have not been tried in a real iOS app or on a device yet. An iOS app should set `NSLocalNetworkUsageDescription` in its `Info.plist`, since reaching a machine on the same Wi-Fi counts as local network access.
 
 ### Examples
 
@@ -178,7 +199,7 @@ Found a security problem? See [SECURITY.md](SECURITY.md).
 |---|---|
 | Agents | Claude Code. Codex CLI (new, checked against a mock model only, see [Codex](#codex)). Copilot CLI, Cursor and OpenCode are next and not tested yet. |
 | Machines | Linux and macOS. Windows (x86_64) is new: see [Windows](#windows). |
-| Screens | Terminal (`tallylight watch`), Android through the Kotlin bindings, any Rust program. |
+| Screens | Terminal (`tallylight watch`), Android through the Kotlin bindings, any Rust program. Swift bindings for iOS and macOS: they build and pass a test on macOS and in the iOS simulator, not yet tried in a real iOS app. |
 | Direction | Read-only: screens show state, they can't answer the agent yet. |
 | Network | Tested on the same Wi-Fi (8–13 ms, direct), across an office firewall and on 5G (direct after a few seconds through a relay). |
 
@@ -198,7 +219,7 @@ Reports are welcome.
 
 ## Roadmap
 
-- **Next:** more agents; Swift bindings and an iOS screen; Windows.
+- **Next:** more agents; an iOS screen built on the Swift bindings.
 - **Later:** a small Bluetooth desk display (ESP32); an optional wake-up service for sleeping phones, run by each app with its own keys; answering a permission request from the screen.
 
 ## Build from source

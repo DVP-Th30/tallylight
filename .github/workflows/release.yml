@@ -118,3 +118,29 @@ jobs:
           gh release upload "$GITHUB_REF_NAME" tallylight-${{ matrix.target }}.* --clobber
         env:
           GH_TOKEN: ${{ github.token }}
+
+  # Paquet Swift (xcframework pour iOS, le simulateur et macOS, liaisons, Package.swift)
+  swift:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios, aarch64-apple-ios-sim, aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: swift
+      - run: apple/build-xcframework.sh
+      - run: apple/smoke-test.sh macos
+      - name: Empreinte
+        run: |
+          cd target/apple
+          for archive in tallylight-swift-*.zip; do shasum -a 256 "$archive" > "$archive.sha256"; done
+          ls -l
+      - name: Dépôt dans la version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" target/apple/tallylight-swift-*.zip target/apple/tallylight-swift-*.zip.sha256 --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
