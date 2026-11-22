@@ -11,7 +11,7 @@ tallylight is the missing signal. One small binary per machine follows your agen
 
 On a television set, the tally light is the red lamp on top of the camera that is live. Same idea.
 
-- **Free and open source.** MIT or Apache-2.0. No paid tier.
+- **Free and open source.** MIT or Apache-2.0.
 - **No account.** Machines pair directly with screens. Nobody else sees your sessions.
 - **Works away from home.** Peer-to-peer through NAT ([iroh](https://www.iroh.computer)), with an encrypted relay as a fallback.
 - **Nothing to change in how you work.** It listens to the hooks your agent already fires. No wrapper, no tmux, no special terminal.
@@ -130,6 +130,8 @@ tally.pair(scannedQr)
 ```
 
 `android/build-aar.sh` builds a ready-to-use `.aar` (native library, Kotlin bindings, permissions, R8 rules). The compressed library weighs about 3.4 MB. Swift bindings are next.
+
+Building with an LLM? Point it at [llms.txt](https://dvp-th30.github.io/tallylight/llms.txt): the protocol, the states, the code and the limits in one file.
 
 ## Privacy and security
 

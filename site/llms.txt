@@ -1,0 +1,126 @@
+# tallylight
+
+> tallylight streams the state of coding agent sessions (working, waiting for the user, done) from the machines where they run to any screen: a phone app, a menu bar item, a widget, a desk lamp, a terminal. Open source (MIT or Apache-2.0), no account, no server to run. It is a building block: one daemon per machine, one client library in the app.
+
+Use it when a user wants their app, widget or device to show what their coding agents are doing, or to know when an agent is waiting for them. Do not write your own hook receiver, state machine, pairing or NAT traversal: tallylight already does all four.
+
+Source: https://github.com/DVP-Th30/tallylight
+Version: 0.1.0. Protocol version 1 (ALPN `tallylight/state/1`). It can still change before 1.0.
+
+## What works today
+
+- Agents: Claude Code only. Codex, Copilot CLI, Cursor and OpenCode are planned, not tested.
+- Machines (where agents run): Linux and macOS, x86_64 and arm64. No Windows.
+- Screens: any Rust program (`tallylight-client` crate), Android (Kotlin bindings), a terminal (`tallylight watch`), or anything that can read the local HTTP port on the same machine.
+- Read-only: a screen shows state. It cannot answer the agent.
+
+## Install on each machine where agents run
+
+```sh
+curl -fsSL https://dvp-th30.github.io/tallylight/install.sh | sh
+tallylight install
+tallylight pair
+```
+
+- `tallylight install` adds hooks to `~/.claude/settings.json` (a backup is kept, other hooks are untouched) and starts the daemon as a user service (systemd on Linux, launchd on macOS).
+- `tallylight pair` prints a QR code and a pairing string `<ticket>#<code>`. The code works once and expires after five minutes. After pairing, the screen reconnects with the ticket alone.
+- Other commands: `tallylight watch`, `tallylight devices`, `tallylight unpair <id>`, `tallylight name <name>`, `tallylight uninstall`, `tallylight --help`.
+
+## Three ways to build a screen
+
+### 1. Same machine: local HTTP (simplest)
+
+For a menu bar item, a status line, a script. No pairing, no library.
+
+```sh
+curl http://127.0.0.1:47700/sessions
+```
+
+Returns the current snapshot (format below). Poll it; there is no local streaming endpoint. The port only listens on 127.0.0.1.
+
+### 2. Another device, in Rust
+
+Add the crate from git (it is not on crates.io yet):
+
+```toml
+tallylight-client = { git = "https://github.com/DVP-Th30/tallylight" }
+```
+
+```rust
+use tallylight_client::{Screen, generate_key};
+
+let screen = Screen::new(generate_key(), "Kitchen tablet").await?;
+let mut watch = screen.watch(pairing).await?;
+while let Some(snapshot) = watch.next().await? {
+    for session in snapshot.sessions.iter().filter(|s| s.state.is_some_and(|s| s.needs_user())) {
+        println!("{} · {} needs you", snapshot.machine, session.label());
+    }
+}
+```
+
+Persist the key: it is the screen's identity. Persist `watch.ticket()` and pass it to `watch()` next time instead of the pairing string.
+
+### 3. Android, in Kotlin
+
+`android/build-aar.sh` in the repository builds a `.aar` (native library, Kotlin bindings, permissions, R8 rules). The app adds JNA (`net.java.dev.jna:jna:5.x@aar`). The bindings handle storage, several machines and reconnection.
+
+```kotlin
+val tally = Tallylight(dataDir, "Kitchen tablet")
+tally.start(object : Listener {
+    override fun onMachine(machine: Machine) {
+        machine.sessions
+            .filter { it.state == "input-required" }
+            .forEach { show("${machine.name} · ${it.title ?: it.project} needs you") }
+    }
+    override fun onMachineRemoved(id: String) {}
+})
+tally.pair(scannedQr)
+```
+
+On Android 17 (target SDK 37), the app needs `android.permission.ACCESS_LOCAL_NETWORK`, or connections on the same Wi-Fi silently fall back to a relay.
+
+There are no Swift, JavaScript or Python bindings yet. From those languages, use the local HTTP port, or implement the protocol on top of an iroh endpoint: https://github.com/DVP-Th30/tallylight/blob/main/docs/PROTOCOL.md
+
+## Snapshot
+
+One JSON object per change, per machine. It is the full list of sessions, not a diff: a session that ended is absent from the next snapshot. Ignore unknown fields.
+
+```json
+{
+  "machine": "build-server",
+  "sessions": [
+    {
+      "id": "6ab539da-2314-4416-9405-f1a20643455a",
+      "agent": "claude-code",
+      "cwd": "/home/me/billing-api",
+      "title": "billing-api",
+      "state": "input-required",
+      "tool": "Bash",
+      "detail": "Run the database migration",
+      "last_message": null,
+      "url": null,
+      "model": "claude-opus-5-5",
+      "updated_at": 1795298089
+    }
+  ]
+}
+```
+
+- `state`: `working`, `input-required`, `completed`, `failed`, `canceled`, or `null` before the session's first turn. Values follow A2A 1.0 `TaskState`.
+- `title`: may be null; fall back to the last component of `cwd`.
+- `tool`, `detail`: what is running or what is being asked (one line, 140 characters at most).
+- `last_message`: first 600 characters of the agent's last message, set when a turn ends.
+- `updated_at`: Unix seconds of the last state or tool change.
+
+## Limits you must tell the user about
+
+- **A sleeping phone is not woken up.** tallylight delivers state over a live connection. When the operating system suspends the app (screen off, app in the background on iOS or Android), nothing arrives until the app runs again. Waking a phone requires a push notification sent through Google (FCM) or Apple (APNs) by a server that is always on and holds the app's own push keys. tallylight does not include that server. A hosted wake-up service is planned and not available yet. Until then, do not promise notifications on a locked phone; a foreground service on Android is the only workaround, and it costs battery.
+- **Default relays are for development.** When no direct path exists, traffic goes through public relays run by the maintainers of iroh: rate-limited, no uptime guarantee. For anything serious, run your own `iroh-relay` and pass `--relay https://relay.example.com` (or `TALLYLIGHT_RELAY`).
+- **Trust model of the local port.** `127.0.0.1:47700` trusts every local process.
+- **What leaves the machine.** State, working directory, title, tool name, the one-line detail, the start of the last message, the model name. Never file contents or command output.
+
+## More
+
+- [README](https://github.com/DVP-Th30/tallylight/blob/main/README.md): install, quick start, privacy
+- [Protocol](https://github.com/DVP-Th30/tallylight/blob/main/docs/PROTOCOL.md): pairing, messages, fields
+- [Releases](https://github.com/DVP-Th30/tallylight/releases): binaries for Linux and macOS
