@@ -3,7 +3,7 @@
 Thanks for looking. tallylight is young and small; the most useful contributions right now are:
 
 - **Trying it and reporting what broke**, with your OS, agent version and the output of `tallylight --version`.
-- **A new agent.** The daemon turns an agent's events into the five states. `crates/tallylight-core/src/claude.rs` is the Claude Code translation (a pure, tested function) and the model to follow.
+- **A new agent.** The daemon turns an agent's events into the five states. `crates/tallylight-core/src/claude.rs` is the Claude Code translation (a pure, tested function) and the model to follow; `codex.rs` next to it shows how a second agent reuses it.
 - **A new screen.** See [docs/PROTOCOL.md](docs/PROTOCOL.md) and the client crate. Screens live in their own repositories; open an issue to get yours listed.
 
 For anything larger than a fix, open an issue first so we agree on the direction. tallylight is a building block: features that turn it into a remote-control app for agents are out of scope.

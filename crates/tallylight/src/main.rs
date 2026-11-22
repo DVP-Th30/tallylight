@@ -5,11 +5,12 @@
 //!     tallylight pair                # affiche un QR et une chaîne d'appairage pour un nouvel écran
 //!     tallylight devices             # liste les écrans appairés
 //!     tallylight unpair <identité>   # retire un écran (début de son identité)
-//!     tallylight install [--no-service] [--relay R]  # branche Claude Code sur le démon, lancé en permanence
+//!     tallylight install [--no-service] [--relay R]  # branche Claude Code et Codex sur le démon, lancé en permanence
 //!                                    # (systemd, launchd, ou tâche planifiée sous Windows)
 //!     tallylight uninstall           # retire les hooks et le service
 //!     tallylight name [nom]          # nom de la machine sur les écrans (« Mac » plutôt que le nom système)
-//!     tallylight hooks [--port N]    # affiche les hooks, pour les ajouter à la main
+//!     tallylight hooks [claude|codex] [--port N]  # affiche les hooks, pour les ajouter à la main
+//!     tallylight hook codex [--port N]  # lancé par Codex : relaie au démon l'événement reçu sur l'entrée
 //!
 //! `R` : relais iroh, `n0` (relais publics de l'éditeur d'iroh, le défaut) ou une ou plusieurs
 //! adresses `https://…` séparées par des virgules. Sans `--relay`, `TALLYLIGHT_RELAY` s'applique.
@@ -51,7 +52,8 @@ tallylight: the state of your coding agent sessions, on the screens you pair
 Usage: tallylight <command> [options]
 
 Commands:
-  install [--no-service] [--relay R]  add the Claude Code hooks and run the daemon as a service
+  install [--no-service] [--relay R]  add the hooks (Claude Code, and Codex when it is installed)
+                                      and run the daemon as a service
   uninstall                           remove the hooks and the service (data is kept)
   pair                                print a QR code and a one-time pairing string for a new screen
   watch [--relay R] [pairing]         follow this machine and every paired machine in the terminal
@@ -59,7 +61,8 @@ Commands:
   unpair <id>                         remove a screen (start of its identity)
   name [name | --reset]               show or choose the machine name shown on screens
   daemon [--port N] [--relay R]       run the daemon in the foreground
-  hooks [--port N]                    print the hooks, to add them by hand
+  hooks [claude|codex] [--port N]     print the hooks, to add them by hand
+  hook codex [--port N]               run by Codex: forward the event read on stdin to the daemon
   help                                show this help
 
 Options:
@@ -111,9 +114,18 @@ async fn main() -> Result<()> {
         "uninstall" if rest.is_empty() => install::uninstall(),
         "name" => name(rest).await,
         "hooks" => {
-            let options = Options::parse(rest, &["--port"], 0)?;
-            println!("{}", hooks::claude_settings(options.port()));
-            Ok(())
+            let options = Options::parse(rest, &["--port"], 1)?;
+            print_hooks(options.free.first().copied(), options.port())
+        }
+        "hook" => {
+            let options = Options::parse(rest, &["--port"], 1)?;
+            match options.free.first().copied() {
+                Some("codex") => {
+                    local::forward("/hooks/codex", options.port()).await;
+                    Ok(())
+                }
+                _ => bail!("`hook` takes the name of an agent: codex\n{HINT}"),
+            }
         }
         // Commande connue, mais arguments en trop ou manquants
         "pair" | "devices" | "uninstall" => bail!("`{command}` takes no argument\n{HINT}"),
@@ -229,6 +241,41 @@ pub fn claude_dir() -> Result<PathBuf> {
         Some(dir) => PathBuf::from(dir),
         None => home_dir()?.join(".claude"),
     })
+}
+
+/// Dossier de configuration de Codex : `~/.codex`, sauf `CODEX_HOME`.
+pub fn codex_dir() -> Result<PathBuf> {
+    Ok(match std::env::var_os("CODEX_HOME") {
+        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+        _ => home_dir()?.join(".codex"),
+    })
+}
+
+/// `tallylight hooks` : ce qu'il faut ajouter à la main dans les réglages de chaque agent. Avec un
+/// nom d'agent, seulement son JSON, sans autre texte.
+fn print_hooks(agent: Option<&str>, port: u16) -> Result<()> {
+    let claude = || hooks::claude_settings(port);
+    let codex = || -> Result<String> {
+        let exe = std::env::current_exe()?;
+        Ok(hooks::codex_settings(&exe.to_string_lossy(), port))
+    };
+    let text = match agent {
+        Some("claude") => claude(),
+        Some("codex") => codex()?,
+        Some(other) => bail!("unknown agent: {other} (claude or codex)\n{HINT}"),
+        None => format!(
+            "Claude Code: merge into {}\n\n{}\n\n\
+             Codex: merge into {}, then open Codex and run /hooks to trust them\n\n{}",
+            claude_dir()?.join("settings.json").display(),
+            claude(),
+            codex_dir()?.join("hooks.json").display(),
+            codex()?
+        ),
+    };
+    // Écrit d'un coup, sans erreur si le lecteur a fermé (`tallylight hooks | grep -q …`)
+    use std::io::Write;
+    let _ = writeln!(std::io::stdout(), "{text}");
+    Ok(())
 }
 
 /// Nom de la machine, tel qu'un écran l'affiche : celui choisi par `tallylight name`, sinon le nom

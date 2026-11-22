@@ -1,7 +1,8 @@
-//! `tallylight install` : branche Claude Code sur le démon et fait tourner celui-ci en permanence.
+//! `tallylight install` : branche les agents sur le démon et fait tourner celui-ci en permanence.
 //!
 //! Deux choses, toutes deux réversibles par `tallylight uninstall` :
-//! - les hooks, ajoutés aux réglages de Claude Code à côté de ceux qui existent (sauvegarde à côté) ;
+//! - les hooks, ajoutés à côté de ceux qui existent (sauvegarde à côté) : dans les réglages de
+//!   Claude Code, et dans le `hooks.json` de Codex si Codex est présent sur la machine ;
 //! - le service : unité utilisateur systemd sous Linux, agent de lancement sous macOS, tâche
 //!   planifiée à l'ouverture de session sous Windows (décision D16).
 
@@ -16,7 +17,7 @@ use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use tallylight_client::Relays;
 
-use crate::{claude_dir, hooks, local_port};
+use crate::{claude_dir, codex_dir, hooks, local_port};
 
 #[cfg(not(any(target_os = "macos", windows)))]
 const SERVICE: &str = "tallylight";
@@ -36,6 +37,7 @@ pub fn install(with_service: bool, relay: Option<Relays>) -> Result<()> {
         if changed { "added" } else { "already in place" },
         settings.display()
     );
+    install_codex()?;
     if with_service {
         let previous = service_file()
             .ok()
@@ -136,6 +138,88 @@ fn launch_agent_plist(label: &str, exe: &str, args: &[String], log: &str) -> Str
     )
 }
 
+/// Ajoute les hooks de Codex, seulement si Codex est présent : on ne crée pas de dossier `.codex`
+/// sur une machine qui ne s'en sert pas.
+fn install_codex() -> Result<()> {
+    // Sous Windows, la façon dont Codex lance une commande de hook n'a pas été vérifiée : plutôt
+    // rien qu'un hook qui afficherait une erreur dans chaque session (décision D17)
+    if cfg!(windows) {
+        println!("Codex hooks: skipped (not supported on Windows yet)");
+        return Ok(());
+    }
+    let dir = codex_dir()?;
+    if !dir.is_dir() && !on_path("codex") {
+        println!("Codex hooks: skipped (Codex not found on this machine)");
+        return Ok(());
+    }
+    let exe = std::env::current_exe()?;
+    let path = dir.join("hooks.json");
+    let changed = edit_settings(&path, |value| {
+        hooks::add_codex(value, &exe.to_string_lossy(), local_port())
+    })?;
+    println!(
+        "Codex hooks: {} ({})",
+        if changed { "added" } else { "already in place" },
+        path.display()
+    );
+    if changed {
+        // Codex ignore un hook nouveau ou modifié tant que l'utilisateur ne l'a pas approuvé
+        println!(
+            "  Codex skips new hooks until you trust them: open Codex and run /hooks to review them"
+        );
+    }
+    let inline = std::fs::read_to_string(dir.join("config.toml"))
+        .is_ok_and(|config| declares_hooks(&config));
+    if inline {
+        println!(
+            "  note: config.toml also declares hooks; Codex loads both files and says so at startup"
+        );
+    }
+    Ok(())
+}
+
+/// Vrai si un `config.toml` de Codex déclare lui-même des hooks. La table `hooks.state`, où Codex
+/// note les hooks approuvés, n'en est pas une déclaration.
+fn declares_hooks(config: &str) -> bool {
+    config.lines().map(str::trim_start).any(|line| {
+        let table = line.trim_start_matches('[');
+        line.starts_with('[')
+            && (table.starts_with("hooks]") || table.starts_with("hooks."))
+            && !table.starts_with("hooks.state")
+    })
+}
+
+/// Vrai si un programme de ce nom est dans le `PATH`.
+fn on_path(program: &str) -> bool {
+    std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
+}
+
+/// Retire les hooks de Codex. Un `hooks.json` qui ne contenait qu'eux est supprimé : rien ne reste
+/// d'une installation faite sur une machine où ce fichier n'existait pas.
+fn uninstall_codex() -> Result<()> {
+    let path = codex_dir()?.join("hooks.json");
+    if !path.exists() {
+        return Ok(());
+    }
+    let changed = remove_codex_hooks(&path, local_port())?;
+    println!(
+        "Codex hooks: {}",
+        if changed { "removed" } else { "none to remove" }
+    );
+    Ok(())
+}
+
+fn remove_codex_hooks(path: &PathBuf, port: u16) -> Result<bool> {
+    // Sans sauvegarde : celle de l'installation, s'il y avait un fichier avant nous, suffit, et
+    // une copie faite maintenant garderait nos propres hooks
+    let changed = edit_file(path, false, |value| hooks::remove_codex(value, port))?;
+    if changed && std::fs::read_to_string(path).is_ok_and(|text| text.trim() == "{}") {
+        std::fs::remove_file(path)?;
+    }
+    Ok(changed)
+}
+
 /// Tâche planifiée de Windows qui lance le démon à l'ouverture de session de `user`
 /// (« DOMAINE\\nom »). Écrite en XML plutôt que par les options de `schtasks` : celles-ci ne savent
 /// ni viser un seul utilisateur (sans droits d'administrateur), ni lever l'arrêt sur batterie et
@@ -197,6 +281,7 @@ pub fn uninstall() -> Result<()> {
         "Claude Code hooks: {}",
         if changed { "removed" } else { "none to remove" }
     );
+    uninstall_codex()?;
     uninstall_service()?;
     println!("Data (identity, paired screens) stays in the tallylight data folder.");
     Ok(())
@@ -208,10 +293,17 @@ fn settings_path() -> Result<PathBuf> {
 
 /// Applique `edit` aux réglages et n'écrit le fichier que s'il a changé, après une sauvegarde.
 fn edit_settings(path: &PathBuf, edit: impl FnOnce(&mut Value) -> bool) -> Result<bool> {
+    edit_file(path, true, edit)
+}
+
+/// Comme [`edit_settings`] ; `backup` : garder une copie du fichier d'avant, s'il n'y en a pas déjà.
+fn edit_file(path: &PathBuf, backup: bool, edit: impl FnOnce(&mut Value) -> bool) -> Result<bool> {
     let original = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::from("{}"),
-        Err(error) => return Err(error).context("could not read the Claude Code settings"),
+        Err(error) => {
+            return Err(error).with_context(|| format!("could not read {}", path.display()));
+        }
     };
     let mut value: Value = serde_json::from_str(&original)
         .with_context(|| format!("{} is not valid JSON; nothing was changed", path.display()))?;
@@ -221,9 +313,9 @@ fn edit_settings(path: &PathBuf, edit: impl FnOnce(&mut Value) -> bool) -> Resul
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let backup = path.with_extension("json.before-tallylight");
-    if !backup.exists() && path.exists() {
-        std::fs::copy(path, &backup)?;
+    let copy = path.with_extension("json.before-tallylight");
+    if backup && !copy.exists() && path.exists() {
+        std::fs::copy(path, &copy)?;
     }
     std::fs::write(path, serde_json::to_string_pretty(&value)? + "\n")?;
     Ok(true)
@@ -509,6 +601,70 @@ mod tests {
         assert!(edit_settings(&path, |value| hooks::remove_claude(value, 4242)).unwrap());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn codex_hooks_are_backed_up_and_removed_without_a_trace() {
+        let dir = std::env::temp_dir().join(format!("tallylight-codex-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("hooks.json");
+        let original = "{\n  \"description\": \"mine\",\n  \"hooks\": {\n    \"Stop\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"say done\"\n          }\n        ]\n      }\n    ]\n  }\n}\n";
+        std::fs::write(&path, original).unwrap();
+
+        assert!(
+            edit_settings(&path, |value| hooks::add_codex(
+                value,
+                "/bin/tallylight",
+                4242
+            ))
+            .unwrap()
+        );
+        let backup = dir.join("hooks.json.before-tallylight");
+        assert_eq!(std::fs::read_to_string(&backup).unwrap(), original);
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(written.contains("say done"));
+        assert!(written.contains("/bin/tallylight hook codex --port 4242"));
+        assert!(
+            !edit_settings(&path, |value| hooks::add_codex(
+                value,
+                "/bin/tallylight",
+                4242
+            ))
+            .unwrap()
+        );
+
+        assert!(remove_codex_hooks(&path, 4242).unwrap());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+
+        // Machine où Codex n'avait pas de `hooks.json` : après retrait, ni fichier ni sauvegarde
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_file(&backup).unwrap();
+        assert!(
+            edit_settings(&path, |value| hooks::add_codex(
+                value,
+                "/bin/tallylight",
+                4242
+            ))
+            .unwrap()
+        );
+        assert!(path.exists() && !backup.exists());
+        assert!(remove_codex_hooks(&path, 4242).unwrap());
+        assert!(!path.exists() && !backup.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn inline_codex_hooks_are_noticed_but_not_the_trust_state() {
+        assert!(declares_hooks(
+            "model = \"x\"\n\n[[hooks.PreToolUse]]\nmatcher = \"Bash\"\n"
+        ));
+        assert!(declares_hooks("  [hooks]\nStop = []\n"));
+        assert!(!declares_hooks(
+            "[hooks.state.\"a:b\"]\ntrusted_hash = \"sha256:x\"\n"
+        ));
+        assert!(!declares_hooks("[features]\nhooks = true\n[hooksmith]\n"));
+        assert!(!declares_hooks(""));
     }
 
     #[test]

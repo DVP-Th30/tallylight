@@ -9,7 +9,7 @@ Version: 0.1.0. Protocol version 1 (ALPN `tallylight/state/1`). It can still cha
 
 ## What works today
 
-- Agents: Claude Code only. Codex, Copilot CLI, Cursor and OpenCode are planned, not tested.
+- Agents: Claude Code. Codex CLI (OpenAI) from the first release after 0.1.0 (new: checked against the real Codex CLI 0.171.0 driven by a local mock model, not verified against a session with a real OpenAI model). Copilot CLI, Cursor and OpenCode are planned, not tested.
 - Machines (where agents run): Linux and macOS, x86_64 and arm64. Windows x86_64 from the first release after 0.1.0 (new, checked on CI machines only; PowerShell installer: `irm https://dvp-th30.github.io/tallylight/install.ps1 | iex`).
 - Screens: any Rust program (`tallylight-client` crate), Android (Kotlin bindings), a terminal (`tallylight watch`), or anything that can read the local HTTP port on the same machine.
 - Read-only: a screen shows state. It cannot answer the agent.
@@ -23,6 +23,7 @@ tallylight pair
 ```
 
 - `tallylight install` adds hooks to `~/.claude/settings.json` (a backup is kept, other hooks are untouched) and starts the daemon as a user service (systemd on Linux, launchd on macOS, a Task Scheduler task on Windows, where the settings file is `%USERPROFILE%\.claude\settings.json`).
+- Codex (from the first release after 0.1.0, Linux and macOS only): the same command also adds hooks to `~/.codex/hooks.json` when Codex is on the machine. Codex runs them only after the user has trusted them: it asks at its next start, or the user runs `/hooks` in Codex. Tell the user; until then no Codex session shows up.
 - `tallylight pair` prints a QR code and a pairing string `<ticket>#<code>`. The code works once and expires after five minutes. After pairing, the screen reconnects with the ticket alone.
 - Other commands: `tallylight watch`, `tallylight devices`, `tallylight unpair <id>`, `tallylight name <name>`, `tallylight uninstall`, `tallylight --help`.
 
@@ -106,6 +107,7 @@ One JSON object per change, per machine. It is the full list of sessions, not a 
 }
 ```
 
+- `agent`: `claude-code` or `codex`.
 - `state`: `working`, `input-required`, `completed`, `failed`, `canceled`, or `null` before the session's first turn. Values follow A2A 1.0 `TaskState`.
 - `title`: may be null; fall back to the last component of `cwd`.
 - `tool`, `detail`: what is running or what is being asked (one line, 140 characters at most).
@@ -115,6 +117,7 @@ One JSON object per change, per machine. It is the full list of sessions, not a 
 ## Limits you must tell the user about
 
 - **A sleeping phone is not woken up.** tallylight delivers state over a live connection. When the operating system suspends the app (screen off, app in the background on iOS or Android), nothing arrives until the app runs again. Waking a phone requires a push notification sent through Google (FCM) or Apple (APNs) by a server that is always on and holds the app's own push keys. tallylight does not include that server. A hosted wake-up service is planned and not available yet. Until then, do not promise notifications on a locked phone; a foreground service on Android is the only workaround, and it costs battery.
+- **Codex sessions never report `failed`.** Codex has no hook for a turn that ends on an error: the session keeps its last state (usually `working`) until its next event. A Codex process that is killed stays listed in its last state for up to 12 hours. Codex sessions have no `title` and no `url`.
 - **Default relays are for development.** When no direct path exists, traffic goes through public relays run by the maintainers of iroh: rate-limited, no uptime guarantee. For anything serious, run your own `iroh-relay` and pass `--relay https://relay.example.com` (or `TALLYLIGHT_RELAY`).
 - **Trust model of the local port.** `127.0.0.1:47700` trusts every local process.
 - **What leaves the machine.** State, working directory, title, tool name, the one-line detail, the start of the last message, the model name. Never file contents or command output.

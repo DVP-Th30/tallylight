@@ -14,9 +14,11 @@ Sur serveurdvp la mémoire est comptée : lancer les grosses compilations sous `
 
 ## Installer sur une machine
 ```sh
-tallylight install      # ajoute les hooks aux réglages de Claude Code (sauvegarde à côté) et lance le service
+tallylight install      # ajoute les hooks aux réglages de Claude Code (sauvegarde à côté), à ceux de Codex s'il est là, et lance le service
 tallylight uninstall    # retire les hooks et le service, garde les données
 ```
+Codex : hooks dans `~/.codex/hooks.json` (ou `$CODEX_HOME`), sauvegarde dans `hooks.json.before-tallylight`, seulement si le dossier existe ou si `codex` est dans le `PATH`. Codex demande à l'utilisateur d'approuver les nouveaux hooks à son lancement suivant (`/hooks`) ; sans cela ils ne tournent pas.
+
 Le service est une unité utilisateur systemd sous Linux, un agent de lancement sous macOS (`~/Library/LaunchAgents/dev.tallylight.daemon.plist`, journal dans `~/Library/Logs/tallylight.log`), une tâche planifiée sous Windows (voir « Windows » plus bas). Les hooks des autres outils (Vibe Island…) ne sont pas touchés.
 
 `install` attend que le démon réponde sur son port local (20 s au plus) avant d'annoncer « démarré » : le lanceur rend la main avant que le démon écoute. Sans réponse, il le dit et renvoie au journal.
@@ -48,7 +50,7 @@ Fait le 2026-11-22 : dépôt public, Pages et signalement privé de failles acti
 6. Renseigner la page du dépôt : `gh repo edit --homepage https://dvp-th30.github.io/tallylight/ --add-topic claude-code --add-topic coding-agents --add-topic rust --add-topic iroh --add-topic a2a`.
 7. Facultatif : réserver le nom sur crates.io (`cargo publish`, irréversible) ; les crates `tallylight-proto` et `tallylight-bindgen` ne se publient pas (`publish = false`).
 
-Essai sur machines vierges : `gh workflow run install-test` installe la dernière version par la commande du site sur dix systèmes neufs (Ubuntu Intel et ARM, macOS Apple Silicon et Intel, conteneurs Debian 12, Ubuntu 20.04, Alpine Intel et ARM, Fedora, Arch) puis déroule `.github/scripts/smoke.sh` : hooks, démon, un événement, appairage. Avec `-f source=release-assets`, il prend les fichiers de la version au lieu du site (seul moyen tant que le dépôt est privé).
+Essai sur machines vierges : `gh workflow run install-test` installe la dernière version par la commande du site sur dix systèmes neufs (Ubuntu Intel et ARM, macOS Apple Silicon et Intel, conteneurs Debian 12, Ubuntu 20.04, Alpine Intel et ARM, Fedora, Arch) puis déroule `.github/scripts/smoke.sh` : hooks, démon, un événement, appairage (et, à partir de la version qui connaît Codex, ses hooks, un événement relayé par `tallylight hook codex` et le retrait). Avec `-f source=release-assets`, il prend les fichiers de la version au lieu du site (seul moyen tant que le dépôt est privé).
 
 Bibliothèque Android : le workflow `android` construit l'AAR (arm64 et x86_64) à chaque étiquette `v*` et le joint à la version. `gh workflow run android -f tag=v0.1.0` complète une version existante ; sans `tag`, c'est une répétition.
 
