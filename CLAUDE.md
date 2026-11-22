@@ -7,6 +7,7 @@ Docs à lire au démarrage :
 - `docs/DECISIONS.md` — choix et raisons (prioritaire : tout choix non évident y est tracé)
 - `docs/INFRA.md` — compilation, machines, tests sur appareil
 - `docs/PROTOCOL.md` — le protocole entre machine et écran, en anglais (contrat public)
+- `docs/RELAY.md` — héberger son propre relais, en anglais (guide public)
 - `docs/ETAT-DE-L-ART.md` — étude de l'existant du 2026-11-17 (concurrents, standards, hooks, réseau)
 
 Règles :

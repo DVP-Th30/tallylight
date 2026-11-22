@@ -21,3 +21,23 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+
+  # Windows : seul le binaire et ses deux bibliothèques y sont attendus (pas les liaisons Android).
+  # Le code propre à Windows n'est compilé qu'ici : clippy, tests, puis le binaire de bout en bout.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy -p tallylight -p tallylight-core -p tallylight-client --all-targets -- -D warnings
+      - run: cargo test -p tallylight -p tallylight-core -p tallylight-client
+      - run: cargo build -p tallylight
+      - name: Essai de bout en bout
+        shell: pwsh
+        run: .github/scripts/smoke.ps1 target\debug\tallylight.exe
+      - name: Service en arrière-plan
+        shell: pwsh
+        run: .github/scripts/service.ps1 target\debug\tallylight.exe

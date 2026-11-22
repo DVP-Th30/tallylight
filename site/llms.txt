@@ -9,8 +9,8 @@ Version: 0.1.0. Protocol version 1 (ALPN `tallylight/state/1`). It can still cha
 
 ## What works today
 
-- Agents: Claude Code. Codex CLI (OpenAI) is on the `main` branch, not in the 0.1.0 release: it needs a build from source (`cargo install --git https://github.com/DVP-Th30/tallylight tallylight`). It was checked against the real Codex CLI 0.171.0 driven by a local mock model, not verified against a session with a real OpenAI model. Copilot CLI, Cursor and OpenCode are planned, not tested.
-- Machines (where agents run): Linux and macOS, x86_64 and arm64. No Windows.
+- Agents: Claude Code. Codex CLI (OpenAI) from the first release after 0.1.0 (new: checked against the real Codex CLI 0.171.0 driven by a local mock model, not verified against a session with a real OpenAI model). Copilot CLI, Cursor and OpenCode are planned, not tested.
+- Machines (where agents run): Linux and macOS, x86_64 and arm64. Windows x86_64 from the first release after 0.1.0 (new, checked on CI machines only; PowerShell installer: `irm https://dvp-th30.github.io/tallylight/install.ps1 | iex`).
 - Screens: any Rust program (`tallylight-client` crate), Android (Kotlin bindings), a terminal (`tallylight watch`), or anything that can read the local HTTP port on the same machine.
 - Read-only: a screen shows state. It cannot answer the agent.
 
@@ -22,8 +22,8 @@ tallylight install
 tallylight pair
 ```
 
-- `tallylight install` adds hooks to `~/.claude/settings.json` (a backup is kept, other hooks are untouched) and starts the daemon as a user service (systemd on Linux, launchd on macOS).
-- Codex (unreleased, see above): the same command also adds hooks to `~/.codex/hooks.json` when Codex is on the machine. Codex runs them only after the user has trusted them: it asks at its next start, or the user runs `/hooks` in Codex. Tell the user; until then no Codex session shows up.
+- `tallylight install` adds hooks to `~/.claude/settings.json` (a backup is kept, other hooks are untouched) and starts the daemon as a user service (systemd on Linux, launchd on macOS, a Task Scheduler task on Windows, where the settings file is `%USERPROFILE%\.claude\settings.json`).
+- Codex (from the first release after 0.1.0, Linux and macOS only): the same command also adds hooks to `~/.codex/hooks.json` when Codex is on the machine. Codex runs them only after the user has trusted them: it asks at its next start, or the user runs `/hooks` in Codex. Tell the user; until then no Codex session shows up.
 - `tallylight pair` prints a QR code and a pairing string `<ticket>#<code>`. The code works once and expires after five minutes. After pairing, the screen reconnects with the ticket alone.
 - Other commands: `tallylight watch`, `tallylight devices`, `tallylight unpair <id>`, `tallylight name <name>`, `tallylight uninstall`, `tallylight --help`.
 
@@ -63,7 +63,7 @@ Persist the key: it is the screen's identity. Persist `watch.ticket()` and pass 
 
 ### 3. Android, in Kotlin
 
-`android/build-aar.sh` in the repository builds a `.aar` (native library, Kotlin bindings, permissions, R8 rules). The app adds JNA (`net.java.dev.jna:jna:5.x@aar`). The bindings handle storage, several machines and reconnection.
+Each release ships a `.aar` (https://github.com/DVP-Th30/tallylight/releases); `android/build-aar.sh` in the repository builds it from source. It contains the native library, the Kotlin bindings, the permissions and the R8 rules. The app adds JNA (`net.java.dev.jna:jna:5.x@aar`). The bindings handle storage, several machines and reconnection.
 
 ```kotlin
 val tally = Tallylight(dataDir, "Kitchen tablet")
@@ -126,4 +126,7 @@ One JSON object per change, per machine. It is the full list of sessions, not a 
 
 - [README](https://github.com/DVP-Th30/tallylight/blob/main/README.md): install, quick start, privacy
 - [Protocol](https://github.com/DVP-Th30/tallylight/blob/main/docs/PROTOCOL.md): pairing, messages, fields
+- [Menu bar example](https://github.com/DVP-Th30/tallylight/tree/main/examples/menubar): 30 lines of shell over the local HTTP port
+- [Rust screen example](https://github.com/DVP-Th30/tallylight/blob/main/crates/tallylight-client/examples/needs_you.rs): pair, persist the key and ticket, react when an agent waits
+- [Running your own relay](https://github.com/DVP-Th30/tallylight/blob/main/docs/RELAY.md)
 - [Releases](https://github.com/DVP-Th30/tallylight/releases): binaries for Linux and macOS

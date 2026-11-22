@@ -6,6 +6,7 @@
 //!     tallylight devices             # liste les écrans appairés
 //!     tallylight unpair <identité>   # retire un écran (début de son identité)
 //!     tallylight install [--no-service] [--relay R]  # branche Claude Code et Codex sur le démon, lancé en permanence
+//!                                    # (systemd, launchd, ou tâche planifiée sous Windows)
 //!     tallylight uninstall           # retire les hooks et le service
 //!     tallylight name [nom]          # nom de la machine sur les écrans (« Mac » plutôt que le nom système)
 //!     tallylight hooks [claude|codex] [--port N]  # affiche les hooks, pour les ajouter à la main
@@ -23,6 +24,8 @@ mod local;
 mod store;
 mod transcript;
 mod watch;
+#[cfg(windows)]
+mod windows;
 
 use std::{
     path::{Path, PathBuf},
@@ -90,7 +93,11 @@ async fn main() -> Result<()> {
             Ok(())
         }
         "daemon" => {
-            let options = Options::parse(rest, &["--port", "--relay"], 0)?;
+            let options = Options::parse(rest, DAEMON_OPTIONS, 0)?;
+            #[cfg(windows)]
+            if options.background {
+                windows::detach_console(&daemon_log()?)?;
+            }
             daemon::run(options.port(), options.relays()?).await
         }
         "watch" => {
@@ -127,12 +134,27 @@ async fn main() -> Result<()> {
     }
 }
 
+/// Options de `daemon`. `--background` (Windows seulement) : option interne de la tâche planifiée
+/// écrite par `install`, qui détache le démon de sa console et journalise dans un fichier.
+#[cfg(not(windows))]
+const DAEMON_OPTIONS: &[&str] = &["--port", "--relay"];
+#[cfg(windows)]
+const DAEMON_OPTIONS: &[&str] = &["--port", "--relay", "--background"];
+
+/// Journal du démon lancé par la tâche planifiée de Windows.
+#[cfg(windows)]
+pub fn daemon_log() -> Result<PathBuf> {
+    Ok(data_dir()?.join("daemon.log"))
+}
+
 /// Options d'une commande, dans n'importe quel ordre.
 #[derive(Debug, Default, PartialEq)]
 struct Options<'a> {
     port: Option<u16>,
     relay: Option<&'a str>,
     no_service: bool,
+    #[cfg_attr(not(windows), allow(dead_code))]
+    background: bool,
     /// Arguments sans tiret (la chaîne d'appairage de `watch`).
     free: Vec<&'a str>,
 }
@@ -155,6 +177,7 @@ impl<'a> Options<'a> {
                 "--port" => options.port = Some(value()?.parse().context("invalid port")?),
                 "--relay" => options.relay = Some(value()?),
                 "--no-service" => options.no_service = true,
+                "--background" => options.background = true,
                 _ => bail!("option {arg} is not handled"),
             }
         }
@@ -200,19 +223,31 @@ pub fn local_port() -> u16 {
         .unwrap_or(DEFAULT_PORT)
 }
 
-/// Dossier de configuration de Claude Code.
+/// Dossier personnel de l'utilisateur : `HOME`, ou `%USERPROFILE%` sous Windows.
+pub fn home_dir() -> Result<PathBuf> {
+    #[cfg(not(windows))]
+    const VARIABLE: &str = "HOME";
+    #[cfg(windows)]
+    const VARIABLE: &str = "USERPROFILE";
+    std::env::var_os(VARIABLE)
+        .map(PathBuf::from)
+        .with_context(|| format!("{VARIABLE} is not set"))
+}
+
+/// Dossier de configuration de Claude Code : `~/.claude`, soit `%USERPROFILE%\.claude` sous
+/// Windows (https://code.claude.com/docs/en/settings, lu le 2026-11-22), sauf `CLAUDE_CONFIG_DIR`.
 pub fn claude_dir() -> Result<PathBuf> {
     Ok(match std::env::var_os("CLAUDE_CONFIG_DIR") {
         Some(dir) => PathBuf::from(dir),
-        None => PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?).join(".claude"),
+        None => home_dir()?.join(".claude"),
     })
 }
 
-/// Dossier de configuration de Codex.
+/// Dossier de configuration de Codex : `~/.codex`, sauf `CODEX_HOME`.
 pub fn codex_dir() -> Result<PathBuf> {
     Ok(match std::env::var_os("CODEX_HOME") {
         Some(dir) if !dir.is_empty() => PathBuf::from(dir),
-        _ => PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?).join(".codex"),
+        _ => home_dir()?.join(".codex"),
     })
 }
 
@@ -258,6 +293,8 @@ fn chosen_name() -> Option<String> {
 fn system_name() -> String {
     std::fs::read_to_string("/etc/hostname")
         .ok()
+        // Windows donne le nom de la machine dans l'environnement
+        .or_else(|| std::env::var("COMPUTERNAME").ok().filter(|_| cfg!(windows)))
         .or_else(|| {
             // macOS n'a pas ce fichier
             let output = std::process::Command::new("hostname").output().ok()?;
@@ -318,16 +355,30 @@ async fn name(args: &[&str]) -> Result<()> {
 }
 
 /// Dossier des données de la machine : identités réseau, ticket, appareils appairés.
+/// `~/.local/share/tallylight`, ou `%LOCALAPPDATA%\tallylight` sous Windows ; `XDG_DATA_HOME`
+/// l'emporte partout (essais, second démon).
 pub fn data_dir() -> Result<PathBuf> {
     let base = match std::env::var_os("XDG_DATA_HOME") {
         Some(dir) => PathBuf::from(dir),
-        None => {
-            PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?).join(".local/share")
-        }
+        None => default_data_base()?,
     };
     let dir = base.join("tallylight");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
+}
+
+#[cfg(not(windows))]
+fn default_data_base() -> Result<PathBuf> {
+    Ok(home_dir()?.join(".local/share"))
+}
+
+/// Données propres à cette machine et à cet utilisateur, hors du profil itinérant.
+#[cfg(windows)]
+fn default_data_base() -> Result<PathBuf> {
+    Ok(match std::env::var_os("LOCALAPPDATA") {
+        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+        _ => home_dir()?.join("AppData").join("Local"),
+    })
 }
 
 /// Identité réseau conservée dans le fichier `name`, créée au premier usage : un cœur garde le même
@@ -349,6 +400,8 @@ pub fn identity(name: &str) -> Result<SecretKey> {
 /// Écrit un fichier réservé à l'utilisateur, d'un coup : fichier temporaire créé directement en
 /// 0600 (la clé n'est jamais lisible par d'autres, même un instant), puis renommage. Un démon
 /// arrêté en pleine écriture laisse donc l'ancien contenu intact, jamais un fichier tronqué.
+/// Sous Windows il n'y a pas de mode à poser : le fichier hérite des droits de son dossier, et
+/// `%LOCALAPPDATA%` n'est ouvert qu'à l'utilisateur, au système et aux administrateurs (D16).
 pub fn write_private(path: &Path, content: &[u8]) -> Result<()> {
     let mut temporary = path.as_os_str().to_owned();
     temporary.push(".tmp");

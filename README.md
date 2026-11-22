@@ -5,6 +5,8 @@
 [![ci](https://github.com/DVP-Th30/tallylight/actions/workflows/ci.yml/badge.svg)](https://github.com/DVP-Th30/tallylight/actions/workflows/ci.yml)
 ![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)
 
+![Agents on the left change state, and a red light turns on across a phone, a menu bar and a desk lamp when one of them waits for you](docs/media/demo.gif)
+
 You start an agent on a server, two more on your laptop, and go back to your own work. One of them has been waiting on a permission prompt for twenty minutes, and nothing told you.
 
 tallylight is the missing signal. One small binary per machine follows your agent sessions and streams their state to the screens you pair with it (a terminal, a phone, your own app) over a direct, end-to-end encrypted connection. No account, no server in the middle.
@@ -17,7 +19,7 @@ On a television set, the tally light is the red lamp on top of the camera that i
 - **Nothing to change in how you work.** It listens to the hooks your agent already fires. No wrapper, no tmux, no special terminal.
 - **A building block, not another app.** A standard state vocabulary ([A2A](https://a2a-protocol.org) `TaskState`) and a client library any app can embed.
 
-Status: early, and used daily by its author. Claude Code and Codex CLI on Linux and macOS, read-only. See [what works today](#what-works-today).
+Status: early, and used daily by its author. Claude Code and Codex CLI on Linux, macOS and Windows, read-only. See [what works today](#what-works-today).
 
 ## Install
 
@@ -27,7 +29,13 @@ Linux and macOS (x86_64 and arm64):
 curl -fsSL https://dvp-th30.github.io/tallylight/install.sh | sh
 ```
 
-The script downloads the latest release, checks its SHA-256 and puts `tallylight` in `~/.local/bin`. You can also grab a binary from the [releases page](https://github.com/DVP-Th30/tallylight/releases), or build it:
+Windows (x86_64), in PowerShell, from the first release after 0.1.0:
+
+```powershell
+irm https://dvp-th30.github.io/tallylight/install.ps1 | iex
+```
+
+The script downloads the latest release, checks its SHA-256 and puts `tallylight` in `~/.local/bin` (on Windows: in `%LOCALAPPDATA%\tallylight\bin`, which it adds to your user `PATH`). You can also grab a binary from the [releases page](https://github.com/DVP-Th30/tallylight/releases), or build it:
 
 ```sh
 cargo install --git https://github.com/DVP-Th30/tallylight tallylight
@@ -41,7 +49,7 @@ On each machine where agents run:
 tallylight install
 ```
 
-This adds tallylight's hooks to your Claude Code settings (a backup is kept next to the file, other tools' hooks are left alone) and starts the daemon as a user service (systemd on Linux, launchd on macOS). Sessions that are already open show up too.
+This adds tallylight's hooks to your Claude Code settings (a backup is kept next to the file, other tools' hooks are left alone) and starts the daemon as a user service (systemd on Linux, launchd on macOS, a Task Scheduler task at logon on Windows). Sessions that are already open show up too.
 
 If Codex is on the machine (`~/.codex` exists, or `codex` is on the `PATH`), the same command adds hooks to `~/.codex/hooks.json`, with the same guarantees. Codex does not run a hook you have not approved: the next time it starts it asks you to review the new hooks (or run `/hooks`), and tallylight sees nothing until you trust them. See [Codex](#codex) for what is and isn't reported.
 
@@ -100,7 +108,7 @@ One JSON snapshot per change, per machine:
 
 ### Codex
 
-Codex support is on the `main` branch and not in the 0.1.0 binaries yet: until the next release, build from source (`cargo install --git`, above).
+Codex support is new: it is in the first release after 0.1.0. Linux and macOS only; on Windows, `tallylight install` skips the Codex hooks.
 
 Codex has no HTTP hooks, so each hook runs `tallylight hook codex`, which forwards the event to the daemon and always exits silently, even when the daemon is stopped (about 12 ms per event, measured on a Mac with an empty shell profile; Codex starts hooks through your login shell). What you should know:
 
@@ -145,7 +153,12 @@ tally.start(object : Listener {
 tally.pair(scannedQr)
 ```
 
-`android/build-aar.sh` builds a ready-to-use `.aar` (native library, Kotlin bindings, permissions, R8 rules). The compressed library weighs about 3.4 MB. Swift bindings are next.
+Each [release](https://github.com/DVP-Th30/tallylight/releases) ships a ready-to-use `.aar` (native library for arm64 and x86_64, Kotlin bindings, permissions, R8 rules); `android/build-aar.sh` builds it from source. The app adds JNA (`net.java.dev.jna:jna:5.x@aar`). Swift bindings are next.
+
+### Examples
+
+- [`examples/menubar`](examples/menubar): tallylight in the macOS menu bar with SwiftBar or xbar. Thirty lines of shell over the local HTTP port, no pairing.
+- [`needs_you.rs`](crates/tallylight-client/examples/needs_you.rs): a remote screen in Rust that prints a line when an agent starts waiting. `cargo run -p tallylight-client --example needs_you -- '<pairing string>'`.
 
 Building with an LLM? Point it at [llms.txt](https://dvp-th30.github.io/tallylight/llms.txt): the protocol, the states, the code and the limits in one file.
 
@@ -154,7 +167,7 @@ Building with an LLM? Point it at [llms.txt](https://dvp-th30.github.io/tallylig
 - **Pairing.** Each screen has its own key. To get on a machine's allow-list, it presents a random one-time code (valid five minutes, single use) shown by `tallylight pair`. After that the machine recognises the key. `tallylight unpair` removes a screen.
 - **Transport.** QUIC, end-to-end encrypted between the machine and the screen. A relay is used only when no direct path is found, and it only sees ciphertext.
 - **What leaves the machine.** Session state, working directory and title, the tool name, a one-line detail (at most 140 characters: a command's description, a file name, the question asked), the first 600 characters of the agent's last message, and the model name. Never file contents, never command output. A command without a description is reduced to the program's name.
-- **Relays.** By default tallylight uses the public relays run by iroh's maintainers, which are meant for development. Use your own with `--relay https://relay.example.com` or `TALLYLIGHT_RELAY`.
+- **Relays.** By default tallylight uses the public relays run by iroh's maintainers, which are meant for development. Use your own with `--relay https://relay.example.com` or `TALLYLIGHT_RELAY`. See [docs/RELAY.md](docs/RELAY.md).
 - **Local port.** The daemon listens on `127.0.0.1:47700` and trusts local processes. Don't run it on a machine you share with people you don't trust.
 
 Found a security problem? See [SECURITY.md](SECURITY.md).
@@ -163,17 +176,29 @@ Found a security problem? See [SECURITY.md](SECURITY.md).
 
 | | |
 |---|---|
-| Agents | Claude Code. Codex CLI (on `main`, checked against a mock model only, see [Codex](#codex)). Copilot CLI, Cursor and OpenCode are next and not tested yet. |
-| Machines | Linux and macOS. No Windows yet. |
+| Agents | Claude Code. Codex CLI (new, checked against a mock model only, see [Codex](#codex)). Copilot CLI, Cursor and OpenCode are next and not tested yet. |
+| Machines | Linux and macOS. Windows (x86_64) is new: see [Windows](#windows). |
 | Screens | Terminal (`tallylight watch`), Android through the Kotlin bindings, any Rust program. |
 | Direction | Read-only: screens show state, they can't answer the agent yet. |
 | Network | Tested on the same Wi-Fi (8–13 ms, direct), across an office firewall and on 5G (direct after a few seconds through a relay). |
 
 Known limits: a phone that is asleep is not woken up (no push notifications yet), Claude Code logs a non-blocking hook error in its transcript when the daemon is stopped, and Codex sessions never show `failed` (see [Codex](#codex)).
 
+### Windows
+
+Windows support is new and has only been exercised on CI machines, not yet on a real desktop with live Claude Code sessions. What to know:
+
+- `tallylight install` writes the hooks to `%USERPROFILE%\.claude\settings.json` and registers a Task Scheduler task named `tallylight` that starts the daemon when you log on, with no window. Its log is `%LOCALAPPDATA%\tallylight\daemon.log`; data (identity, paired screens) lives in `%LOCALAPPDATA%\tallylight`.
+- If the task can't be created on your machine, use `tallylight install --no-service` and run `tallylight daemon` yourself.
+- Not checked yet on a real machine: session files and transcripts written by Claude Code on Windows (they feed already-open sessions, dead sessions and the model name), creating the task from an account without administrator rights, and Windows on ARM (the x86_64 build is installed there).
+- A console window may flash when you log on, before the daemon detaches from it.
+- Data files are not locked down beyond the default permissions of `%LOCALAPPDATA%` (your account, the system and administrators).
+
+Reports are welcome.
+
 ## Roadmap
 
-- **Next:** more agents; Swift bindings and an iOS screen; a packaged self-hosted relay.
+- **Next:** more agents; Swift bindings and an iOS screen; Windows.
 - **Later:** a small Bluetooth desk display (ESP32); an optional wake-up service for sleeping phones, run by each app with its own keys; answering a permission request from the screen.
 
 ## Build from source

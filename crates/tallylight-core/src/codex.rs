@@ -5,7 +5,7 @@
 //! diffère : pas de hook `http` (une commande reçoit l'événement sur son entrée), un événement
 //! `Interrupt`, pas de `StopFailure` ni de `Notification`, et d'autres noms d'outils.
 //! Références lues le 2026-11-22 : https://developers.openai.com/codex/hooks et le dépôt
-//! openai/codex (`codex-rs/hooks/src/schema.rs`, version 0.171.0). Voir `docs/DECISIONS.md` (D16).
+//! openai/codex (`codex-rs/hooks/src/schema.rs`, version 0.171.0). Voir `docs/DECISIONS.md` (D17).
 
 use crate::{
     State,
@@ -64,7 +64,7 @@ fn patched_file(patch: &str) -> Option<&str> {
             .iter()
             .find_map(|marker| line.strip_prefix(marker))?
             .trim();
-        Some(path.rsplit('/').next().unwrap_or(path))
+        Some(crate::last_component(path))
     })
 }
 
