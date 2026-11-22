@@ -63,7 +63,7 @@ Historique vérifié le 2026-11-22 : aucun secret ni adresse IP ; seuls restent 
 - Hooks : `%USERPROFILE%\.claude\settings.json`, sauvegarde dans `settings.json.before-tallylight`.
 - Données : `%LOCALAPPDATA%\tallylight\` (`key`, `ticket`, `devices.json`, `sessions.json`, `service.xml`).
 - Mettre à jour : relancer `install.ps1` (il arrête la tâche, remplace le binaire, la relance), ou arrêter la tâche avant de remplacer le binaire à la main.
-- Pas de machine Windows parmi les appareils de test : tout a été vérifié sur les machines `windows-latest` de GitHub Actions le 2026-11-22 — `ci.yml` (run 45060885057 : clippy, tests, démon, appairage par un relais, tâche planifiée lancée, relancée et retirée, journal écrit) et la répétition `gh workflow run release --ref feat/windows` (run 45060883944 : archive zip, installation par `install.ps1`, mise à jour par-dessus un service en marche). `install-test.yml` n'a pas de cas Windows : il télécharge une version publiée, et aucune ne contient encore l'archive Windows.
+- Pas de machine Windows parmi les appareils de test : tout a été vérifié sur les machines `windows-latest` de GitHub Actions le 2026-11-22 — `ci.yml` (run 45060885057 : clippy, tests, démon, appairage par un relais, tâche planifiée lancée, relancée et retirée, journal écrit) et la répétition `gh workflow run release --ref feat/windows` (run 45060883944 : archive zip, installation par `install.ps1`, mise à jour par-dessus un service en marche). `install-test.yml` a un cas Windows depuis la 0.1.1 (commande du site, puis les deux scripts d'essai), en mode `public-url` seulement.
 
 ## Compiler pour Android
 NDK 29 dans `~/android-sdk/ndk/29.0.14206865`, cible Rust `aarch64-linux-android` (installés le 2026-11-17).

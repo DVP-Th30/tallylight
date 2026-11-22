@@ -29,7 +29,7 @@ Linux and macOS (x86_64 and arm64):
 curl -fsSL https://dvp-th30.github.io/tallylight/install.sh | sh
 ```
 
-Windows (x86_64), in PowerShell, from the first release after 0.1.0:
+Windows (x86_64), in PowerShell:
 
 ```powershell
 irm https://dvp-th30.github.io/tallylight/install.ps1 | iex
@@ -108,7 +108,7 @@ One JSON snapshot per change, per machine:
 
 ### Codex
 
-Codex support is new: it is in the first release after 0.1.0. Linux and macOS only; on Windows, `tallylight install` skips the Codex hooks.
+Codex support is new, since 0.1.1. Linux and macOS only; on Windows, `tallylight install` skips the Codex hooks.
 
 Codex has no HTTP hooks, so each hook runs `tallylight hook codex`, which forwards the event to the daemon and always exits silently, even when the daemon is stopped (about 12 ms per event, measured on a Mac with an empty shell profile; Codex starts hooks through your login shell). What you should know:
 
@@ -174,7 +174,7 @@ tally.start(listener: Screen())
 tally.pair(pairing: scannedQr)
 ```
 
-`apple/build-xcframework.sh` builds `TallylightFFI.xcframework` (iOS, iOS simulator, macOS) and the Swift bindings into `apple/`, which you then add to your app as a local package; releases after 0.1.0 carry the same package as a zip. The Swift bindings are new: they build and pass an end-to-end test (pairing, sessions received) on macOS and in the iOS simulator, as a command-line program; they have not been tried in a real iOS app or on a device yet. An iOS app should set `NSLocalNetworkUsageDescription` in its `Info.plist`, since reaching a machine on the same Wi-Fi counts as local network access.
+`apple/build-xcframework.sh` builds `TallylightFFI.xcframework` (iOS, iOS simulator, macOS) and the Swift bindings into `apple/`, which you then add to your app as a local package; releases since 0.1.1 carry the same package as a zip. The Swift bindings are new: they build and pass an end-to-end test (pairing, sessions received) on macOS and in the iOS simulator, as a command-line program; they have not been tried in a real iOS app or on a device yet. An iOS app should set `NSLocalNetworkUsageDescription` in its `Info.plist`, since reaching a machine on the same Wi-Fi counts as local network access.
 
 ### Examples
 

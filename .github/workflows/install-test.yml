@@ -12,7 +12,7 @@ on:
         default: public-url
       version:
         description: étiquette à essayer en mode release-assets
-        default: v0.1.0
+        default: v0.1.1
 
 permissions:
   contents: read
@@ -82,3 +82,25 @@ jobs:
       - name: Alpine ARM
         if: matrix.alpine
         run: docker run --rm -v "$HOME/.local/bin/tallylight:/tallylight:ro" -v "$PWD/.github/scripts:/scripts:ro" alpine:3 sh -c "apk add --no-cache curl >/dev/null && sh /scripts/smoke.sh /tallylight"
+
+  # Windows : la commande du site, puis les mêmes essais que la CI. Seulement en mode public :
+  # install.ps1 télécharge la dernière version publiée
+  windows:
+    if: inputs.source == 'public-url'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Installer
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          irm https://dvp-th30.github.io/tallylight/install.ps1 | iex
+          $exe = "$env:LOCALAPPDATA\tallylight\bin\tallylight.exe"
+          if (-not (Test-Path $exe)) { throw "nothing installed at $exe" }
+          & $exe --version
+      - name: Essai de bout en bout
+        shell: pwsh
+        run: .github/scripts/smoke.ps1 "$env:LOCALAPPDATA\tallylight\bin\tallylight.exe"
+      - name: Service en arrière-plan
+        shell: pwsh
+        run: .github/scripts/service.ps1 "$env:LOCALAPPDATA\tallylight\bin\tallylight.exe"
