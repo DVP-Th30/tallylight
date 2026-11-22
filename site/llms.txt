@@ -10,7 +10,7 @@ Version: 0.1.0. Protocol version 1 (ALPN `tallylight/state/1`). It can still cha
 ## What works today
 
 - Agents: Claude Code only. Codex, Copilot CLI, Cursor and OpenCode are planned, not tested.
-- Machines (where agents run): Linux and macOS, x86_64 and arm64. No Windows.
+- Machines (where agents run): Linux and macOS, x86_64 and arm64. Windows x86_64 from the first release after 0.1.0 (new, checked on CI machines only; PowerShell installer: `irm https://dvp-th30.github.io/tallylight/install.ps1 | iex`).
 - Screens: any Rust program (`tallylight-client` crate), Android (Kotlin bindings), a terminal (`tallylight watch`), or anything that can read the local HTTP port on the same machine.
 - Read-only: a screen shows state. It cannot answer the agent.
 
@@ -22,7 +22,7 @@ tallylight install
 tallylight pair
 ```
 
-- `tallylight install` adds hooks to `~/.claude/settings.json` (a backup is kept, other hooks are untouched) and starts the daemon as a user service (systemd on Linux, launchd on macOS).
+- `tallylight install` adds hooks to `~/.claude/settings.json` (a backup is kept, other hooks are untouched) and starts the daemon as a user service (systemd on Linux, launchd on macOS, a Task Scheduler task on Windows, where the settings file is `%USERPROFILE%\.claude\settings.json`).
 - `tallylight pair` prints a QR code and a pairing string `<ticket>#<code>`. The code works once and expires after five minutes. After pairing, the screen reconnects with the ticket alone.
 - Other commands: `tallylight watch`, `tallylight devices`, `tallylight unpair <id>`, `tallylight name <name>`, `tallylight uninstall`, `tallylight --help`.
 

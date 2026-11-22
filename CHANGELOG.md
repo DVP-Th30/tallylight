@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Windows (x86_64): the daemon and every command build and run; `tallylight install` registers a Task Scheduler task that starts the daemon at logon; data lives in `%LOCALAPPDATA%\tallylight`; releases gain a `.zip` for `x86_64-pc-windows-msvc` and a PowerShell installer (`install.ps1`). Checked on CI machines only so far.
+- Sessions of a Windows machine show their folder name, and only the file name of the file being edited, on every screen (paths with `\` were sent whole).
+
 ## 0.1.0
 
 First public version.

@@ -19,7 +19,7 @@ On a television set, the tally light is the red lamp on top of the camera that i
 - **Nothing to change in how you work.** It listens to the hooks your agent already fires. No wrapper, no tmux, no special terminal.
 - **A building block, not another app.** A standard state vocabulary ([A2A](https://a2a-protocol.org) `TaskState`) and a client library any app can embed.
 
-Status: early, and used daily by its author. Claude Code on Linux and macOS, read-only. See [what works today](#what-works-today).
+Status: early, and used daily by its author. Claude Code on Linux, macOS and Windows, read-only. See [what works today](#what-works-today).
 
 ## Install
 
@@ -29,7 +29,13 @@ Linux and macOS (x86_64 and arm64):
 curl -fsSL https://dvp-th30.github.io/tallylight/install.sh | sh
 ```
 
-The script downloads the latest release, checks its SHA-256 and puts `tallylight` in `~/.local/bin`. You can also grab a binary from the [releases page](https://github.com/DVP-Th30/tallylight/releases), or build it:
+Windows (x86_64), in PowerShell, from the first release after 0.1.0:
+
+```powershell
+irm https://dvp-th30.github.io/tallylight/install.ps1 | iex
+```
+
+The script downloads the latest release, checks its SHA-256 and puts `tallylight` in `~/.local/bin` (on Windows: in `%LOCALAPPDATA%\tallylight\bin`, which it adds to your user `PATH`). You can also grab a binary from the [releases page](https://github.com/DVP-Th30/tallylight/releases), or build it:
 
 ```sh
 cargo install --git https://github.com/DVP-Th30/tallylight tallylight
@@ -43,7 +49,7 @@ On each machine where agents run:
 tallylight install
 ```
 
-This adds tallylight's hooks to your Claude Code settings (a backup is kept next to the file, other tools' hooks are left alone) and starts the daemon as a user service (systemd on Linux, launchd on macOS). Sessions that are already open show up too.
+This adds tallylight's hooks to your Claude Code settings (a backup is kept next to the file, other tools' hooks are left alone) and starts the daemon as a user service (systemd on Linux, launchd on macOS, a Task Scheduler task at logon on Windows). Sessions that are already open show up too.
 
 Pair a screen:
 
@@ -155,12 +161,24 @@ Found a security problem? See [SECURITY.md](SECURITY.md).
 | | |
 |---|---|
 | Agents | Claude Code. Codex, Copilot CLI, Cursor and OpenCode are next and not tested yet. |
-| Machines | Linux and macOS. No Windows yet. |
+| Machines | Linux and macOS. Windows (x86_64) is new: see [Windows](#windows). |
 | Screens | Terminal (`tallylight watch`), Android through the Kotlin bindings, any Rust program. |
 | Direction | Read-only: screens show state, they can't answer the agent yet. |
 | Network | Tested on the same Wi-Fi (8–13 ms, direct), across an office firewall and on 5G (direct after a few seconds through a relay). |
 
 Known limits: a phone that is asleep is not woken up (no push notifications yet), and Claude Code logs a non-blocking hook error in its transcript when the daemon is stopped.
+
+### Windows
+
+Windows support is new and has only been exercised on CI machines, not yet on a real desktop with live Claude Code sessions. What to know:
+
+- `tallylight install` writes the hooks to `%USERPROFILE%\.claude\settings.json` and registers a Task Scheduler task named `tallylight` that starts the daemon when you log on, with no window. Its log is `%LOCALAPPDATA%\tallylight\daemon.log`; data (identity, paired screens) lives in `%LOCALAPPDATA%\tallylight`.
+- If the task can't be created on your machine, use `tallylight install --no-service` and run `tallylight daemon` yourself.
+- Not checked yet on a real machine: session files and transcripts written by Claude Code on Windows (they feed already-open sessions, dead sessions and the model name), creating the task from an account without administrator rights, and Windows on ARM (the x86_64 build is installed there).
+- A console window may flash when you log on, before the daemon detaches from it.
+- Data files are not locked down beyond the default permissions of `%LOCALAPPDATA%` (your account, the system and administrators).
+
+Reports are welcome.
 
 ## Roadmap
 

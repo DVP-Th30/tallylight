@@ -85,7 +85,30 @@ Limite assumée : un contributeur non francophone lit le code sans ses commentai
 
 ## D15 — Versions : binaires statiques par étiquette, script d'installation (2026-11-22)
 Une étiquette `v*` publie quatre binaires (Linux x86_64 et arm64 liés à musl, macOS Apple Silicon et Intel) avec leur empreinte SHA-256. Linux en musl : un binaire lié à la glibc de la machine de construction refuse de se lancer sur une distribution plus ancienne. `site/install.sh` installe la dernière version dans `~/.local/bin` après vérification de l'empreinte ; `cargo install --git` reste possible.
-Écarté pour l'instant : Homebrew, paquets `.deb` (à faire si la demande existe) ; cargo-dist (outil de plus pour quatre cibles) ; Windows (le service et les chemins sont propres à Unix).
+Écarté pour l'instant : Homebrew, paquets `.deb` (à faire si la demande existe) ; cargo-dist (outil de plus pour quatre cibles) ; Windows (le service et les chemins sont propres à Unix) — levé par D16.
+
+## D16 — Windows : tâche planifiée à l'ouverture de session, données dans `%LOCALAPPDATA%` (2026-11-22)
+Le binaire se compile et tourne sous Windows x86_64 ; une cinquième cible, `x86_64-pc-windows-msvc`, sort avec chaque version (archive zip).
+- **Service** : `tallylight install` inscrit une tâche planifiée `tallylight` (`schtasks /Create /XML`), déclenchée à l'ouverture de session de l'utilisateur, avec ses droits ordinaires. Elle est décrite en XML car les options de `schtasks` ne savent ni viser un seul utilisateur, ni lever les réglages par défaut du planificateur (pas de lancement sur batterie, arrêt au bout de trois jours). Relance en cas d'échec : toutes les minutes, dix fois. La tâche lance `tallylight daemon --background` : le démon se détache de sa console (pas de fenêtre ouverte en permanence) et écrit son journal dans `%LOCALAPPDATA%\tallylight\daemon.log`, remis à zéro au lancement au-delà de 1 Mo. Une copie de la tâche (`service.xml`) reste dans le dossier de données pour retrouver les relais à la réinstallation, comme le fichier de service des autres systèmes (D11).
+- **Données** : `%LOCALAPPDATA%\tallylight` (propre à la machine, pas dans le profil itinérant : la clé est l'identité de cette machine). `XDG_DATA_HOME` reste prioritaire partout, pour les essais.
+- **Droits des fichiers** : Windows n'a pas de mode 0600. Les fichiers héritent des droits de `%LOCALAPPDATA%`, ouvert au seul utilisateur, au système et aux administrateurs ; rien n'est durci au-delà. L'écriture d'un coup (fichier temporaire puis renommage, D12) est la même.
+- **Réglages de Claude Code** : `%USERPROFILE%\.claude\settings.json` (documentation officielle, https://code.claude.com/docs/en/settings, lue le 2026-11-22), ou `CLAUDE_CONFIG_DIR`. Les hooks de type `http` sont les mêmes sur tous les systèmes.
+- **Processus vivants** (D9) : `OpenProcess` puis `GetExitCodeProcess`, à la place du signal 0.
+- **Chemins** : le dernier élément d'un dossier ou d'un fichier se lit avec `/` comme avec `\`, y compris sur un écran Linux qui affiche une machine Windows ; sinon le chemin entier d'un fichier partait vers les écrans. L'outil `PowerShell` de Claude Code est résumé comme `Bash`.
+- **Binaire** : bibliothèque C de Microsoft liée dans le binaire (`.cargo/config.toml`), donc rien à installer à côté. `site/install.ps1` vérifie l'empreinte, installe dans `%LOCALAPPDATA%\tallylight\bin`, ajoute ce dossier au `PATH` de l'utilisateur et, pour une mise à jour, arrête la tâche le temps de remplacer le binaire (Windows verrouille un programme qui tourne).
+
+Écarté :
+- un vrai service Windows : droits d'administrateur à l'installation, et il tourne sous un compte système qui ne voit ni `%USERPROFILE%\.claude` ni les sessions de l'utilisateur, sauf à lui demander son mot de passe ;
+- la clé `Run` du registre ou le dossier Démarrage : ni relance après un échec, ni arrêt (il faudrait tuer le processus par son nom), ni état à interroger ;
+- `--no-service` seul, démon à lancer à la main : c'est le repli qui reste possible, pas une installation ;
+- `conhost --headless` pour cacher la console : option non documentée de Windows.
+
+Limites, et ce qui n'a pas été vu sur un vrai poste Windows (seulement sur les machines `windows-latest` de GitHub Actions) :
+- aucune vraie session Claude Code n'a été suivie sous Windows : le format des fiches `sessions\<pid>.json` (D9) et le dossier des transcriptions (D13, `C:\Users\moi\projet` donnerait `C--Users-moi-projet`) sont supposés identiques à ceux de Linux et macOS ;
+- à l'ouverture de session, une fenêtre de console peut apparaître un instant avant que le démon s'en détache ;
+- la création de la tâche par un utilisateur sans droits d'administrateur n'est pas vérifiée (le compte des machines d'essai est administrateur) ;
+- la tâche est arrêtée sèchement (`schtasks /End`), sans extinction propre du démon : sans conséquence sur les fichiers d'état (D12), l'écran voit seulement la connexion tomber ;
+- pas de binaire ARM64 : le script installe le binaire x86_64, que Windows 11 ARM exécute par émulation (non essayé).
 
 ## Questions ouvertes
 - Envoyer un message à une session Claude Code déjà ouverte (conditionne la voix) : Remote Control sans API, channels en aperçu, socket de boîte de réception au format non documenté. À valider par un essai.

@@ -99,6 +99,10 @@ pub async fn run(pairing: Option<&str>, relays: &Relays) -> Result<()> {
 
     // Hors d'un terminal (sortie redirigée), on n'efface pas l'écran : un bloc par changement
     let redraw = std::io::IsTerminal::is_terminal(&std::io::stdout());
+    #[cfg(windows)]
+    if redraw {
+        crate::windows::enable_ansi();
+    }
     while let Some((id, link, snapshot)) = received.recv().await {
         let Some(view) = views.get_mut(&id) else {
             continue;
