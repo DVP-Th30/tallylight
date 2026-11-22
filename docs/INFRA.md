@@ -47,6 +47,8 @@ gh release download dev -R DVP-Th30/tallylight -p 'tallylight-aarch64-apple-darw
 6. Renseigner la page du dépôt : `gh repo edit --homepage https://dvp-th30.github.io/tallylight/ --add-topic claude-code --add-topic coding-agents --add-topic rust --add-topic iroh --add-topic a2a`.
 7. Facultatif : réserver le nom sur crates.io (`cargo publish`, irréversible) ; les crates `tallylight-proto` et `tallylight-bindgen` ne se publient pas (`publish = false`).
 
+Essai sur machines vierges : `gh workflow run install-test` installe la dernière version par la commande du site sur dix machines neuves (Ubuntu Intel et ARM, macOS Apple Silicon et Intel, conteneurs Debian 12, Ubuntu 20.04, Alpine, Fedora, Arch) puis déroule `.github/scripts/smoke.sh` : hooks, démon, un événement, appairage. Avec `-f source=release-assets`, il prend les fichiers de la version au lieu du site (seul moyen tant que le dépôt est privé).
+
 Historique vérifié le 2026-11-22 : aucun secret ni adresse IP ; seuls restent des noms de machines et de dossiers personnels dans les docs.
 
 ## Compiler pour Android

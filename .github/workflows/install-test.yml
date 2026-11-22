@@ -1,0 +1,81 @@
+name: install-test
+
+# Installe la dernière version sur des machines vierges et vérifie qu'elle marche de bout en bout.
+# `public-url` : la vraie commande du site. `release-assets` : les fichiers de la version, servis
+# localement au script (seul moyen tant que le dépôt est privé).
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        type: choice
+        options: [public-url, release-assets]
+        default: public-url
+      version:
+        description: étiquette à essayer en mode release-assets
+        default: v0.1.0
+
+permissions:
+  contents: read
+
+jobs:
+  assets:
+    runs-on: ubuntu-latest
+    steps:
+      - run: mkdir dist && touch dist/.keep
+      - if: inputs.source == 'release-assets'
+        run: gh release download "${{ inputs.version }}" --repo "$GITHUB_REPOSITORY" --dir dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist
+          include-hidden-files: true
+
+  install:
+    needs: assets
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: ubuntu-x86_64, os: ubuntu-latest, service: true }
+          - { name: ubuntu-arm64, os: ubuntu-24.04-arm, service: true }
+          - { name: macos-arm64, os: macos-latest, service: true }
+          - { name: macos-intel, os: macos-15-intel, service: true }
+          - { name: debian-12, os: ubuntu-latest, image: "debian:12", setup: "apt-get update && apt-get install -y curl ca-certificates" }
+          - { name: ubuntu-20.04, os: ubuntu-latest, image: "ubuntu:20.04", setup: "apt-get update && apt-get install -y curl ca-certificates" }
+          - { name: alpine, os: ubuntu-latest, image: "alpine:3", setup: "apk add --no-cache curl" }
+          - { name: fedora, os: ubuntu-latest, image: "fedora:latest", setup: "dnf install -y curl tar gzip" }
+          - { name: archlinux, os: ubuntu-latest, image: "archlinux:latest", setup: "pacman -Sy --noconfirm curl tar" }
+          - { name: alpine-arm64, os: ubuntu-24.04-arm, image: "alpine:3", setup: "apk add --no-cache curl" }
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.image }}
+    steps:
+      - if: matrix.setup
+        run: ${{ matrix.setup }}
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - name: Installer
+        shell: sh
+        run: |
+          if [ "${{ inputs.source }}" = "public-url" ]; then
+            curl -fsSL https://dvp-th30.github.io/tallylight/install.sh | sh
+          else
+            sed "s|^  base=.*|  base=\"file://$PWD/dist\"|" site/install.sh > /tmp/install.sh
+            sh /tmp/install.sh
+          fi
+      - name: Essai de bout en bout
+        shell: sh
+        run: sh .github/scripts/smoke.sh "$HOME/.local/bin/tallylight"
+      - name: Service en arrière-plan
+        if: matrix.service
+        shell: sh
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          tallylight install
+          tallylight pair
+          tallylight uninstall
