@@ -73,3 +73,7 @@ Constats :
 - Le ticket fait 261 caractères : l'appairage passera par un QR ou un code court.
 - Hors d'une application, iroh lève une erreur non bloquante sur Android (`ndk-context` : « android context was not initialized ») : dans une application, le contexte Android doit être fourni à l'initialisation.
 - Binaire Android optimisé : 20 Mo (non réduit) ; à mesurer une fois réduit (`strip`, `opt-level = "z"`, LTO).
+
+## Exemples (2026-11-22)
+- `examples/menubar/tallylight.5s.sh` : barre de menus macOS (SwiftBar ou xbar), lit `GET /sessions` du démon local avec `curl` et `jq`. Sortie vérifiée à la main, pas dans SwiftBar lui-même.
+- `crates/tallylight-client/examples/needs_you.rs` : écran distant minimal en Rust ; garde sa clé et le ticket dans `.tallylight-example/`. Vérifié de bout en bout contre un démon d'essai.

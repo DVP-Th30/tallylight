@@ -3,6 +3,8 @@ target/
 *.swp
 secrets.*
 .env
+.tallylight-example/
+.claude/worktrees/
 
 # Produits par apple/build-xcframework.sh, et dossiers de travail de SwiftPM
 apple/TallylightFFI.xcframework/
