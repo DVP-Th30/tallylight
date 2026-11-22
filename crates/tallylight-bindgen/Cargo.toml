@@ -4,6 +4,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Bindings generator for tallylight-ffi"
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
 
 [dependencies]
 uniffi = { version = "0.32.2", features = ["cli"] }

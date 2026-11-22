@@ -30,7 +30,7 @@ enum Choice {
 
 /// Relais mal écrit.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("relais invalide : {0}")]
+#[error("invalid relay: {0}")]
 pub struct BadRelay(String);
 
 impl Relays {
@@ -76,27 +76,27 @@ impl FromStr for Relays {
 /// Une adresse de relais : schéma http(s) et hôte, sans rien d'autre. Le chemin est fixé par iroh,
 /// et l'adresse finit dans le ticket que l'on montre aux écrans : pas d'identifiants, pas de jeton.
 fn relay_url(item: &str) -> Result<RelayUrl, BadRelay> {
-    let bad = |reason: &str| BadRelay(format!("« {item} » : {reason}"));
+    let bad = |reason: &str| BadRelay(format!("\"{item}\": {reason}"));
     if item.is_empty() {
-        return Err(bad("adresse vide"));
+        return Err(bad("empty address"));
     }
     if matches!(item, "n0" | "default") {
-        return Err(bad("`n0` ne se combine pas avec d'autres relais"));
+        return Err(bad("`n0` cannot be combined with other relays"));
     }
-    let url = RelayUrl::from_str(item).map_err(|_| bad("adresse illisible"))?;
+    let url = RelayUrl::from_str(item).map_err(|_| bad("unreadable address"))?;
     if !matches!(url.scheme(), "https" | "http") {
         return Err(bad(
-            "il faut une adresse https:// (ou http:// pour un essai local)",
+            "an https:// address is required (or http:// for a local test)",
         ));
     }
     if url.host_str().is_none_or(str::is_empty) {
-        return Err(bad("hôte manquant"));
+        return Err(bad("missing host"));
     }
     if !url.username().is_empty() || url.password().is_some() {
-        return Err(bad("pas d'identifiants dans l'adresse"));
+        return Err(bad("no credentials in the address"));
     }
     if url.query().is_some() || url.fragment().is_some() || url.path() != "/" {
-        return Err(bad("seulement le schéma, l'hôte et le port"));
+        return Err(bad("only the scheme, host and port"));
     }
     Ok(url)
 }
@@ -147,13 +147,13 @@ mod tests {
     #[test]
     fn malformed_relays_are_refused_with_the_reason() {
         let refused = |text: &str| text.parse::<Relays>().unwrap_err().to_string();
-        assert!(refused("relais.exemple.fr").contains("illisible"));
+        assert!(refused("relais.exemple.fr").contains("unreadable"));
         assert!(refused("ftp://relais.exemple.fr").contains("https://"));
-        assert!(refused("https://relais.exemple.fr,").contains("vide"));
-        assert!(refused("n0,https://relais.exemple.fr").contains("ne se combine pas"));
-        assert!(refused("https://moi:secret@relais.exemple.fr").contains("identifiants"));
-        assert!(refused("https://relais.exemple.fr/?token=abc").contains("schéma, l'hôte"));
-        assert!(refused("https://relais.exemple.fr/relay").contains("schéma, l'hôte"));
-        assert!(refused("https://relais.exemple.fr/#x").contains("schéma, l'hôte"));
+        assert!(refused("https://relais.exemple.fr,").contains("empty"));
+        assert!(refused("n0,https://relais.exemple.fr").contains("cannot be combined"));
+        assert!(refused("https://moi:secret@relais.exemple.fr").contains("credentials"));
+        assert!(refused("https://relais.exemple.fr/?token=abc").contains("scheme, host"));
+        assert!(refused("https://relais.exemple.fr/relay").contains("scheme, host"));
+        assert!(refused("https://relais.exemple.fr/#x").contains("scheme, host"));
     }
 }

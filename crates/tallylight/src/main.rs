@@ -38,16 +38,54 @@ pub const DEFAULT_PORT: u16 = 47700;
 /// Variable d'environnement qui choisit les relais quand `--relay` n'est pas donné.
 pub const RELAY_ENV: &str = "TALLYLIGHT_RELAY";
 
-const USAGE: &str = "usage : tallylight daemon [--port N] [--relay R] | watch [--relay R] [appairage] | pair | devices | unpair <identité> | install [--no-service] [--relay R] | uninstall | name [nom | --reset] | hooks [--port N]";
+/// Renvoi vers l'aide, ajouté aux erreurs d'usage.
+const HINT: &str = "run `tallylight --help` for usage";
+
+/// Aide affichée par `--help`, et par `tallylight` sans argument.
+const HELP: &str = "\
+tallylight: the state of your coding agent sessions, on the screens you pair
+
+Usage: tallylight <command> [options]
+
+Commands:
+  install [--no-service] [--relay R]  add the Claude Code hooks and run the daemon as a service
+  uninstall                           remove the hooks and the service (data is kept)
+  pair                                print a QR code and a one-time pairing string for a new screen
+  watch [--relay R] [pairing]         follow this machine and every paired machine in the terminal
+  devices                             list the paired screens
+  unpair <id>                         remove a screen (start of its identity)
+  name [name | --reset]               show or choose the machine name shown on screens
+  daemon [--port N] [--relay R]       run the daemon in the foreground
+  hooks [--port N]                    print the hooks, to add them by hand
+  help                                show this help
+
+Options:
+  --port N       local port of the daemon (default 47700)
+  --relay R      iroh relay: `n0` (public relays, the default) or one or more https:// URLs
+                 separated by commas
+  -h, --help     show this help
+  -V, --version  show the version
+
+Environment:
+  TALLYLIGHT_RELAY  relay used when --relay is not given";
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let Some((&command, rest)) = args.split_first() else {
-        bail!(USAGE);
+        println!("{HELP}");
+        return Ok(());
     };
     match command {
+        "help" | "--help" | "-h" => {
+            println!("{HELP}");
+            Ok(())
+        }
+        "--version" | "-V" => {
+            println!("tallylight {}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
         "daemon" => {
             let options = Options::parse(rest, &["--port", "--relay"], 0)?;
             daemon::run(options.port(), options.relays()?).await
@@ -70,7 +108,10 @@ async fn main() -> Result<()> {
             println!("{}", hooks::claude_settings(options.port()));
             Ok(())
         }
-        _ => bail!(USAGE),
+        // Commande connue, mais arguments en trop ou manquants
+        "pair" | "devices" | "uninstall" => bail!("`{command}` takes no argument\n{HINT}"),
+        "unpair" => bail!("`unpair` takes the start of one screen identity\n{HINT}"),
+        _ => bail!("unknown command: {command}\n{HINT}"),
     }
 }
 
@@ -95,21 +136,18 @@ impl<'a> Options<'a> {
                 continue;
             }
             if !allowed.contains(&arg) {
-                bail!("option inconnue : {arg}\n{USAGE}");
+                bail!("unknown option: {arg}\n{HINT}");
             }
-            let mut value = || {
-                args.next()
-                    .with_context(|| format!("{arg} attend une valeur"))
-            };
+            let mut value = || args.next().with_context(|| format!("{arg} needs a value"));
             match arg {
-                "--port" => options.port = Some(value()?.parse().context("port invalide")?),
+                "--port" => options.port = Some(value()?.parse().context("invalid port")?),
                 "--relay" => options.relay = Some(value()?),
                 "--no-service" => options.no_service = true,
-                _ => bail!("option {arg} non traitée"),
+                _ => bail!("option {arg} is not handled"),
             }
         }
         if options.free.len() > max_free {
-            bail!("argument en trop : {}\n{USAGE}", options.free.join(" "));
+            bail!("unexpected argument: {}\n{HINT}", options.free.join(" "));
         }
         Ok(options)
     }
@@ -139,7 +177,7 @@ fn relay_choice(option: Option<&str>, env: Option<&str>) -> Result<Option<Relays
     };
     text.parse()
         .map(Some)
-        .with_context(|| format!("{source} : « {text} »"))
+        .with_context(|| format!("{source}: \"{text}\""))
 }
 
 /// Port du démon de cette machine ; `TALLYLIGHT_PORT` le remplace (essais, second démon).
@@ -154,7 +192,7 @@ pub fn local_port() -> u16 {
 pub fn claude_dir() -> Result<PathBuf> {
     Ok(match std::env::var_os("CLAUDE_CONFIG_DIR") {
         Some(dir) => PathBuf::from(dir),
-        None => PathBuf::from(std::env::var_os("HOME").context("HOME absent")?).join(".claude"),
+        None => PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?).join(".claude"),
     })
 }
 
@@ -202,9 +240,9 @@ async fn name(args: &[&str]) -> Result<()> {
     match args {
         [] => {
             match chosen_name() {
-                Some(name) => println!("{name} (nom système : {})", system_name()),
+                Some(name) => println!("{name} (system name: {})", system_name()),
                 None => println!(
-                    "{} (nom système ; `tallylight name <nom>` pour en choisir un)",
+                    "{} (system name; run `tallylight name <name>` to choose another)",
                     system_name()
                 ),
             }
@@ -217,16 +255,16 @@ async fn name(args: &[&str]) -> Result<()> {
         }
         words => {
             let Some(name) = clean_name(&words.join(" ")) else {
-                bail!("nom vide");
+                bail!("the name is empty");
             };
             write_private(&path, name.as_bytes())?;
         }
     }
     let name = machine_name();
     match local::request("POST", "/name/reload").await {
-        Ok(_) => println!("nom de la machine : {name}"),
+        Ok(_) => println!("machine name: {name}"),
         Err(_) => {
-            println!("nom de la machine : {name} (pris en compte au prochain lancement du démon)")
+            println!("machine name: {name} (applied the next time the daemon starts)")
         }
     }
     Ok(())
@@ -237,7 +275,7 @@ pub fn data_dir() -> Result<PathBuf> {
     let base = match std::env::var_os("XDG_DATA_HOME") {
         Some(dir) => PathBuf::from(dir),
         None => {
-            PathBuf::from(std::env::var_os("HOME").context("HOME absent")?).join(".local/share")
+            PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?).join(".local/share")
         }
     };
     let dir = base.join("tallylight");
@@ -250,7 +288,10 @@ pub fn data_dir() -> Result<PathBuf> {
 pub fn identity(name: &str) -> Result<SecretKey> {
     let path = data_dir()?.join(name);
     if let Ok(bytes) = std::fs::read(&path) {
-        let bytes: [u8; 32] = bytes.try_into().ok().context("clé d'identité illisible")?;
+        let bytes: [u8; 32] = bytes
+            .try_into()
+            .ok()
+            .context("the identity key is unreadable")?;
         return Ok(SecretKey::from_bytes(&bytes));
     }
     let key = SecretKey::generate();
@@ -274,7 +315,7 @@ pub fn write_private(path: &Path, content: &[u8]) -> Result<()> {
     }
     let mut file = options
         .open(&temporary)
-        .with_context(|| format!("écriture de {}", temporary.display()))?;
+        .with_context(|| format!("could not write {}", temporary.display()))?;
     #[cfg(unix)]
     {
         // Fichier temporaire resté d'un essai précédent avec d'autres droits
@@ -285,7 +326,7 @@ pub fn write_private(path: &Path, content: &[u8]) -> Result<()> {
     file.sync_all()?;
     drop(file);
     std::fs::rename(&temporary, path)
-        .with_context(|| format!("remplacement de {}", path.display()))?;
+        .with_context(|| format!("could not replace {}", path.display()))?;
     Ok(())
 }
 

@@ -131,7 +131,7 @@ fn summary(event: &HookEvent) -> Option<String> {
             .and_then(|questions| questions.get(0))
             .and_then(|question| question.get("question"))
             .and_then(|question| question.as_str()),
-        "ExitPlanMode" => Some("plan à valider"),
+        "ExitPlanMode" => Some("plan to approve"),
         _ => None,
     }?;
     let line = found.lines().next().unwrap_or_default().trim();

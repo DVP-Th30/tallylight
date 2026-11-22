@@ -3,10 +3,18 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.0.0"
+version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/DVP-Th30/tallylight"
+homepage = "https://dvp-th30.github.io/tallylight/"
+readme = "README.md"
+keywords = ["agents", "claude-code", "a2a", "iroh", "status"]
+categories = ["command-line-utilities", "development-tools"]
+
+# Binaire distribué : sans symboles, trois fois plus léger
+[profile.release]
+strip = true
 
 # Bibliothèque embarquée dans une application : la taille prime sur la vitesse
 [profile.embed]

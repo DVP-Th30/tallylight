@@ -28,13 +28,13 @@ use tokio::io::{AsyncBufReadExt, BufReader, Lines};
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// La chaîne d'appairage ou le ticket ne se lit pas.
-    #[error("chaîne d'appairage illisible")]
+    #[error("unreadable pairing string")]
     BadPairing,
     /// Le cœur ne connaît pas cet écran : il faut une chaîne fraîche de `tallylight pair`.
-    #[error("cet écran n'est pas appairé avec la machine")]
+    #[error("this screen is not paired with the machine")]
     NotPaired,
     /// Machine injoignable, connexion coupée, réponse inattendue.
-    #[error("connexion impossible : {0}")]
+    #[error("could not connect: {0}")]
     Connection(String),
 }
 
@@ -121,7 +121,7 @@ impl Screen {
             .next_line()
             .await
             .map_err(self::connection)?
-            .ok_or_else(|| Error::Connection("connexion fermée".into()))?;
+            .ok_or_else(|| Error::Connection("connection closed".into()))?;
         let welcome: Welcome = serde_json::from_str(&welcome).map_err(self::connection)?;
         if !welcome.ok {
             return Err(Error::NotPaired);

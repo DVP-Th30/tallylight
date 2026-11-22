@@ -53,14 +53,12 @@ pub async fn run(port: u16, relays: Relays) -> Result<()> {
     // Les hooks et les commandes locales n'arrivent que de la machine elle-même
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port))
         .await
-        .with_context(|| format!("port {port} déjà pris ?"))?;
-    println!("hooks attendus sur http://127.0.0.1:{port}/hooks/claude");
+        .with_context(|| format!("could not listen on port {port} (already in use?)"))?;
+    println!("listening for hooks on http://127.0.0.1:{port}/hooks/claude");
     if relays.is_n0() {
-        println!(
-            "relais : n0 (publics, réservés au développement ; --relay pour indiquer le sien)"
-        );
+        println!("relay: n0 (public, meant for development; --relay to use your own)");
     } else {
-        println!("relais : {relays}");
+        println!("relay: {relays}");
     }
 
     // Le relais effectif part dans le ticket : `endpoint.addr()` annonce le relais joint
@@ -90,9 +88,9 @@ pub async fn run(port: u16, relays: Relays) -> Result<()> {
             let ticket = EndpointTicket::new(address).to_string();
             // Le ticket dit où joindre la machine ; il ne donne aucun droit sans appairage
             if let Err(error) = write_private(&ticket_file, ticket.as_bytes()) {
-                println!("ticket non enregistré : {error:#}");
+                println!("could not save the ticket: {error:#}");
             }
-            println!("réseau joint par {}, écrans attendus", joined.join(", "));
+            println!("online through {}, waiting for screens", joined.join(", "));
             let _ = ticket_ready.send(Some(ticket));
             // La tâche reste en vie : sa fin ne doit pas arrêter le démon
             std::future::pending::<()>().await
@@ -119,8 +117,8 @@ pub async fn run(port: u16, relays: Relays) -> Result<()> {
                     };
                     let peer = connection.remote_id().fmt_short();
                     match serve_screen(&connection, &app).await {
-                        Ok(()) => println!("écran déconnecté : {peer}"),
-                        Err(error) => println!("écran {peer} : {error:#}"),
+                        Ok(()) => println!("screen disconnected: {peer}"),
+                        Err(error) => println!("screen {peer}: {error:#}"),
                     }
                 });
             }
@@ -179,7 +177,7 @@ async fn sessions(State(app): State<Arc<App>>) -> Json<Snapshot> {
 async fn pair(State(app): State<Arc<App>>) -> Json<Value> {
     let Some(ticket) = ticket(app.ticket.clone(), TICKET_PATIENCE).await else {
         return Json(json!({
-            "error": "le démon n'a pas encore joint le réseau (machine hors ligne, ou relais injoignable ?) : réessayer une fois la connexion revenue"
+            "error": "the daemon is not online yet (machine offline, or relay unreachable?): try again once the connection is back"
         }));
     };
     match app.devices.lock().unwrap().new_code() {
@@ -221,9 +219,9 @@ async fn serve_screen(connection: &Connection, app: &App) -> Result<()> {
     let mut lines = BufReader::new(recv).lines();
     let hello = tokio::time::timeout(Duration::from_secs(10), lines.next_line())
         .await
-        .context("l'écran ne s'est pas présenté")??
-        .context("l'écran ne s'est pas présenté")?;
-    let hello: Hello = serde_json::from_str(&hello).context("présentation illisible")?;
+        .context("the screen did not introduce itself")??
+        .context("the screen did not introduce itself")?;
+    let hello: Hello = serde_json::from_str(&hello).context("unreadable introduction")?;
 
     let admission =
         app.devices
@@ -241,10 +239,10 @@ async fn serve_screen(connection: &Connection, app: &App) -> Result<()> {
             send.finish()?;
             // Laisse le refus arriver avant de fermer
             let _ = tokio::time::timeout(Duration::from_secs(2), connection.closed()).await;
-            bail!("refusé (« {} », non appairé)", hello.name);
+            bail!("refused (\"{}\", not paired)", hello.name);
         }
-        Admission::Paired => println!("écran appairé : {} ({})", hello.name, &id[..10]),
-        Admission::Known => println!("écran connecté : {} ({})", hello.name, &id[..10]),
+        Admission::Paired => println!("screen paired: {} ({})", hello.name, &id[..10]),
+        Admission::Known => println!("screen connected: {} ({})", hello.name, &id[..10]),
     }
 
     let mut updates = app.store.subscribe();
@@ -255,7 +253,7 @@ async fn serve_screen(connection: &Connection, app: &App) -> Result<()> {
     loop {
         let now = describe_route(connection);
         if now != route {
-            println!("écran {} : {now}", hello.name);
+            println!("screen {}: {now}", hello.name);
             route = now;
         }
         let mut line = serde_json::to_vec(&*updates.borrow_and_update())?;
@@ -269,7 +267,7 @@ async fn serve_screen(connection: &Connection, app: &App) -> Result<()> {
                 _ = check.tick() => {
                     let now = describe_route(connection);
                     if now != route {
-                        println!("écran {} : {now}", hello.name);
+                        println!("screen {}: {now}", hello.name);
                         route = now;
                     }
                 }
@@ -285,10 +283,10 @@ fn describe_route(connection: &Connection) -> String {
         // Sans le délai, qui varie sans cesse et noierait le journal
         Some(path) => format!(
             "{} via {:?}",
-            if path.is_relay() { "relais" } else { "direct" },
+            if path.is_relay() { "relayed" } else { "direct" },
             path.remote_addr()
         ),
-        None => "aucun chemin".to_string(),
+        None => "no path".to_string(),
     }
 }
 

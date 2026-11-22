@@ -28,12 +28,8 @@ pub fn install(with_service: bool, relay: Option<Relays>) -> Result<()> {
     let settings = settings_path()?;
     let changed = edit_settings(&settings, |value| hooks::add_claude(value, local_port()))?;
     println!(
-        "hooks Claude Code : {} ({})",
-        if changed {
-            "ajoutés"
-        } else {
-            "déjà en place"
-        },
+        "Claude Code hooks: {} ({})",
+        if changed { "added" } else { "already in place" },
         settings.display()
     );
     if with_service {
@@ -43,17 +39,15 @@ pub fn install(with_service: bool, relay: Option<Relays>) -> Result<()> {
             .and_then(|text| relay_in_service(&text));
         let relays = relay.or(previous).unwrap_or_default();
         if relays.is_n0() {
-            println!(
-                "relais : n0, publics et réservés au développement (--relay <adresse> pour le sien)"
-            );
+            println!("relay: n0, public and meant for development (--relay <url> to use your own)");
         } else {
-            println!("relais : {relays}");
+            println!("relay: {relays}");
         }
         install_service(&daemon_args(&relays))?;
     } else if relay.is_some() {
-        println!("relais : sans effet sans le service (--no-service)");
+        println!("relay: ignored without the service (--no-service)");
     }
-    println!("\nPour suivre cette machine depuis un autre écran : tallylight pair");
+    println!("\nTo follow this machine from another screen: tallylight pair");
     Ok(())
 }
 
@@ -89,7 +83,7 @@ fn xml(text: &str) -> String {
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn systemd_unit(exe: &str, args: &[String]) -> String {
     format!(
-        "[Unit]\nDescription=tallylight : suivi des sessions d'agents de code\nAfter=network-online.target\n\n\
+        "[Unit]\nDescription=tallylight: state of coding agent sessions\nAfter=network-online.target\n\n\
          [Service]\nExecStart={exe} {}\nRestart=on-failure\nRestartSec=5\nMemoryMax=200M\n\n\
          [Install]\nWantedBy=default.target\n",
         args.join(" ")
@@ -126,15 +120,11 @@ pub fn uninstall() -> Result<()> {
     let settings = settings_path()?;
     let changed = edit_settings(&settings, |value| hooks::remove_claude(value, local_port()))?;
     println!(
-        "hooks Claude Code : {}",
-        if changed {
-            "retirés"
-        } else {
-            "aucun à retirer"
-        }
+        "Claude Code hooks: {}",
+        if changed { "removed" } else { "none to remove" }
     );
     uninstall_service()?;
-    println!("Les données (identité, écrans appairés) restent dans le dossier de tallylight.");
+    println!("Data (identity, paired screens) stays in the tallylight data folder.");
     Ok(())
 }
 
@@ -147,21 +137,17 @@ fn edit_settings(path: &PathBuf, edit: impl FnOnce(&mut Value) -> bool) -> Resul
     let original = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::from("{}"),
-        Err(error) => return Err(error).context("lecture des réglages de Claude Code"),
+        Err(error) => return Err(error).context("could not read the Claude Code settings"),
     };
-    let mut value: Value = serde_json::from_str(&original).with_context(|| {
-        format!(
-            "{} n'est pas un JSON valide ; rien n'a été modifié",
-            path.display()
-        )
-    })?;
+    let mut value: Value = serde_json::from_str(&original)
+        .with_context(|| format!("{} is not valid JSON; nothing was changed", path.display()))?;
     if !edit(&mut value) {
         return Ok(false);
     }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let backup = path.with_extension("json.avant-tallylight");
+    let backup = path.with_extension("json.before-tallylight");
     if !backup.exists() && path.exists() {
         std::fs::copy(path, &backup)?;
     }
@@ -173,9 +159,9 @@ fn run(program: &str, args: &[&str]) -> Result<()> {
     let status = Command::new(program)
         .args(args)
         .status()
-        .with_context(|| format!("lancement de {program}"))?;
+        .with_context(|| format!("could not run {program}"))?;
     if !status.success() {
-        bail!("{program} {} a échoué", args.join(" "));
+        bail!("{program} {} failed", args.join(" "));
     }
     Ok(())
 }
@@ -202,11 +188,11 @@ fn wait_for_daemon(port: u16, patience: Duration) -> bool {
 fn report_service(journal: &str) {
     // Le service écoute sur le port par défaut, quel que soit TALLYLIGHT_PORT ici
     if wait_for_daemon(crate::DEFAULT_PORT, Duration::from_secs(20)) {
-        println!("service : démarré ({journal})");
+        println!("service: started ({journal})");
     } else {
         println!(
-            "service : lancé, mais le démon ne répond pas encore sur le port {} ; \
-             il attend peut-être le réseau, ou il a échoué ({journal})",
+            "service: launched, but the daemon is not answering on port {} yet; \
+             it may be waiting for the network, or it failed ({journal})",
             crate::DEFAULT_PORT
         );
     }
@@ -215,7 +201,7 @@ fn report_service(journal: &str) {
 #[cfg(target_os = "linux")]
 fn service_file() -> Result<PathBuf> {
     Ok(
-        PathBuf::from(std::env::var_os("HOME").context("HOME absent")?)
+        PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?)
             .join(".config/systemd/user")
             .join(format!("{SERVICE}.service")),
     )
@@ -243,7 +229,7 @@ fn uninstall_service() -> Result<()> {
         let _ = run("systemctl", &["--user", "disable", "--now", SERVICE]);
         std::fs::remove_file(unit)?;
         let _ = run("systemctl", &["--user", "daemon-reload"]);
-        println!("service : arrêté et retiré");
+        println!("service: stopped and removed");
     }
     Ok(())
 }
@@ -251,7 +237,7 @@ fn uninstall_service() -> Result<()> {
 #[cfg(target_os = "macos")]
 fn service_file() -> Result<PathBuf> {
     Ok(
-        PathBuf::from(std::env::var_os("HOME").context("HOME absent")?)
+        PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?)
             .join("Library/LaunchAgents")
             .join(format!("{LAUNCH_LABEL}.plist")),
     )
@@ -260,7 +246,7 @@ fn service_file() -> Result<PathBuf> {
 #[cfg(target_os = "macos")]
 fn install_service(args: &[String]) -> Result<()> {
     let exe = std::env::current_exe()?;
-    let home = PathBuf::from(std::env::var_os("HOME").context("HOME absent")?);
+    let home = PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?);
     let log = home.join("Library/Logs/tallylight.log");
     let plist = service_file()?;
     if let Some(parent) = plist.parent() {
@@ -284,7 +270,7 @@ fn install_service(args: &[String]) -> Result<()> {
         "launchctl",
         &["bootstrap", &domain, &plist.to_string_lossy()],
     )?;
-    report_service(&format!("journal : {}", log.display()));
+    report_service(&format!("log: {}", log.display()));
     Ok(())
 }
 
@@ -297,20 +283,20 @@ fn uninstall_service() -> Result<()> {
             .args(["bootout", &format!("{domain}/{LAUNCH_LABEL}")])
             .output();
         std::fs::remove_file(plist)?;
-        println!("service : arrêté et retiré");
+        println!("service: stopped and removed");
     }
     Ok(())
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn service_file() -> Result<PathBuf> {
-    bail!("service non géré sur ce système")
+    bail!("no service support on this system")
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn install_service(args: &[String]) -> Result<()> {
     println!(
-        "service : non géré sur ce système ; lancer `{SERVICE} {}` au démarrage de la session",
+        "service: not supported on this system; run `{SERVICE} {}` when your session starts",
         args.join(" ")
     );
     Ok(())
@@ -335,7 +321,7 @@ mod tests {
         std::fs::write(&path, original).unwrap();
 
         assert!(edit_settings(&path, |value| hooks::add_claude(value, 4242)).unwrap());
-        let backup = path.with_extension("json.avant-tallylight");
+        let backup = path.with_extension("json.before-tallylight");
         assert_eq!(std::fs::read_to_string(&backup).unwrap(), original);
         let written = std::fs::read_to_string(&path).unwrap();
         // L'ordre des réglages existants est conservé, les hooks arrivent à la fin

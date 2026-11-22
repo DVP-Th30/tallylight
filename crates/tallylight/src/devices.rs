@@ -62,7 +62,7 @@ impl Devices {
         self.codes.retain(|_, deadline| *deadline > now);
         let mut bytes = [0u8; 10];
         getrandom::fill(&mut bytes)
-            .map_err(|error| anyhow::anyhow!("aléa indisponible : {error}"))?;
+            .map_err(|error| anyhow::anyhow!("no source of randomness: {error}"))?;
         let code: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
         self.codes.insert(code.clone(), now + CODE_LIFETIME);
         Ok(code)

@@ -1,0 +1,55 @@
+name: release
+
+# Une étiquette `v*` publie une version : un binaire par plateforme, son empreinte, et les notes.
+# Lancé à la main, il construit tout sans rien publier (répétition avant une version).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # musl : binaire statique, sans dépendance à la version de la glibc de la machine
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - run: cargo build --release --locked -p tallylight --target ${{ matrix.target }}
+      - name: Archive et empreinte
+        run: |
+          name=tallylight-${{ matrix.target }}
+          mkdir "$name"
+          cp target/${{ matrix.target }}/release/tallylight README.md LICENSE-MIT LICENSE-APACHE "$name/"
+          tar czf "$name.tar.gz" "$name"
+          shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+          "$name/tallylight" --version || true
+          ls -l "$name.tar.gz"
+      - name: Dépôt dans la version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" tallylight-${{ matrix.target }}.tar.gz tallylight-${{ matrix.target }}.tar.gz.sha256 --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}

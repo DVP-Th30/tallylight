@@ -4,10 +4,15 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Throwaway network prototype of tallylight"
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
 
 [dependencies]
 anyhow = "1.0.104"
 iroh = "1.4.1"
 iroh-tickets = "1.0.0"
-tallylight-core = { version = "0.0.0", path = "../tallylight-core" }
+tallylight-core = { version = "0.1.0", path = "../tallylight-core" }
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "io-util", "time"] }

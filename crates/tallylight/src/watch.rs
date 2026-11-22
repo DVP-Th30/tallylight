@@ -58,7 +58,7 @@ pub async fn run(pairing: Option<&str>, relays: &Relays) -> Result<()> {
         let id = machine_id(pairing)?;
         let watch = match screen.watch(pairing).await {
             Err(tallylight_client::Error::NotPaired) => bail!(
-                "cet écran n'est pas appairé avec la machine : lancer `tallylight pair` sur elle et utiliser la chaîne affichée"
+                "this screen is not paired with the machine: run `tallylight pair` on it and use the string it prints"
             ),
             other => other?,
         };
@@ -93,7 +93,7 @@ pub async fn run(pairing: Option<&str>, relays: &Relays) -> Result<()> {
     if views.is_empty() {
         // Ni démon local, ni machine connue : l'erreur du démon dit quoi faire
         local?;
-        bail!("aucune machine à suivre : lancer `tallylight pair` sur une machine");
+        bail!("no machine to follow: run `tallylight pair` on a machine");
     }
     drop(events);
 
@@ -151,7 +151,7 @@ async fn follow(
                 // Machine éteinte : la tentative peut durer longtemps, mieux vaut dire « hors ligne »
                 match tokio::time::timeout(CONNECT_PATIENCE, screen.watch(&target)).await {
                     Ok(connected) => connected,
-                    Err(_) => Err(tallylight_client::Error::Connection("délai dépassé".into())),
+                    Err(_) => Err(tallylight_client::Error::Connection("timed out".into())),
                 }
             }
         };
@@ -207,17 +207,17 @@ fn render_all<'a>(views: impl Iterator<Item = &'a View>, now: u64) -> String {
                 let block = render(snapshot, now);
                 if view.link == Link::Relayed {
                     // Le lien passe par un relais : utile pour comprendre une latence
-                    block.replacen('\n', " · relais\n", 1)
+                    block.replacen('\n', " · relayed\n", 1)
                 } else {
                     block
                 }
             }
             (_, Link::NotPaired) => format!(
-                "{} · non appairé : `tallylight pair` sur elle, puis `tallylight watch '<chaîne>'`\n",
+                "{} · not paired: run `tallylight pair` on it, then `tallylight watch '<string>'`\n",
                 view.name
             ),
-            (_, Link::Offline) => format!("{} · hors ligne, nouvel essai bientôt\n", view.name),
-            _ => format!("{} · connexion…\n", view.name),
+            (_, Link::Offline) => format!("{} · offline, retrying soon\n", view.name),
+            _ => format!("{} · connecting…\n", view.name),
         })
         .collect();
     blocks.join("\n")
@@ -227,19 +227,23 @@ fn render_all<'a>(views: impl Iterator<Item = &'a View>, now: u64) -> String {
 fn render(snapshot: &Snapshot, now: u64) -> String {
     let mut sessions: Vec<&Session> = snapshot.sessions.iter().collect();
     sessions.sort_by_key(|session| (rank(session.state), session.label().to_string()));
-    let mut out = format!("{} · {} session(s)\n", snapshot.machine, sessions.len());
+    let count = match sessions.len() {
+        1 => "1 session".to_string(),
+        count => format!("{count} sessions"),
+    };
+    let mut out = format!("{} · {count}\n", snapshot.machine);
     for session in sessions {
         let (mark, label) = match session.state {
-            Some(State::InputRequired) => ("!", "attend une réponse"),
-            Some(State::Working) => ("●", "au travail"),
-            Some(State::Completed) => ("✓", "fini"),
-            Some(State::Failed) => ("✗", "erreur"),
-            Some(State::Canceled) => ("–", "interrompu"),
-            None => ("·", "ouverte"),
+            Some(State::InputRequired) => ("!", "waiting for you"),
+            Some(State::Working) => ("●", "working"),
+            Some(State::Completed) => ("✓", "done"),
+            Some(State::Failed) => ("✗", "failed"),
+            Some(State::Canceled) => ("–", "interrupted"),
+            None => ("·", "open"),
         };
         // « (Bash : Compile le projet) », ou l'outil seul, ou rien
         let tool = match (session.tool.as_deref(), session.detail.as_deref()) {
-            (Some(tool), Some(detail)) => format!(" ({tool} : {detail})"),
+            (Some(tool), Some(detail)) => format!(" ({tool}: {detail})"),
             (Some(tool), None) => format!(" ({tool})"),
             _ => String::new(),
         };
@@ -322,10 +326,10 @@ mod tests {
             ],
         };
         let lines: Vec<String> = render(&snapshot, 1000).lines().map(String::from).collect();
-        assert_eq!(lines[0], "serveurdvp · 3 session(s)");
-        assert!(lines[1].contains("beta") && lines[1].ends_with("attend une réponse · 2 min"));
-        assert!(lines[2].contains("alpha") && lines[2].ends_with("au travail (Bash) · 5 s"));
-        assert!(lines[3].contains("gamma") && lines[3].ends_with("fini · 16 min"));
+        assert_eq!(lines[0], "serveurdvp · 3 sessions");
+        assert!(lines[1].contains("beta") && lines[1].ends_with("waiting for you · 2 min"));
+        assert!(lines[2].contains("alpha") && lines[2].ends_with("working (Bash) · 5 s"));
+        assert!(lines[3].contains("gamma") && lines[3].ends_with("done · 16 min"));
     }
 
     #[test]
@@ -358,9 +362,9 @@ mod tests {
         ];
         let text = render_all(views.iter(), 1000);
         let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines[0], "mac · 1 session(s) · relais");
-        assert_eq!(lines[3], "serveurdvp · 1 session(s)");
-        assert_eq!(lines[6], "portable · hors ligne, nouvel essai bientôt");
-        assert!(lines[8].starts_with("ab12cd34ef · non appairé"));
+        assert_eq!(lines[0], "mac · 1 session · relayed");
+        assert_eq!(lines[3], "serveurdvp · 1 session");
+        assert_eq!(lines[6], "portable · offline, retrying soon");
+        assert!(lines[8].starts_with("ab12cd34ef · not paired"));
     }
 }

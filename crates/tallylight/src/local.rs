@@ -15,8 +15,8 @@ pub async fn request(method: &str, path: &str) -> Result<Value> {
     let mut stream = TcpStream::connect(("127.0.0.1", local_port()))
         .await
         .context(
-            "le démon de cette machine ne répond pas : s'il vient d'être lancé, réessayer dans \
-             quelques secondes ; sinon `tallylight install`, ou `tallylight daemon` à la main",
+            "the daemon on this machine is not answering: if it just started, try again in a few \
+             seconds; otherwise run `tallylight install`, or `tallylight daemon` by hand",
         )?;
     let request = format!(
         "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
@@ -26,14 +26,14 @@ pub async fn request(method: &str, path: &str) -> Result<Value> {
     stream.read_to_string(&mut response).await?;
     let (head, body) = response
         .split_once("\r\n\r\n")
-        .context("réponse du démon illisible")?;
+        .context("unreadable answer from the daemon")?;
     if !head.starts_with("HTTP/1.1 200") {
         bail!(
-            "le démon a répondu : {}",
+            "the daemon answered: {}",
             head.lines().next().unwrap_or_default()
         );
     }
-    serde_json::from_str(body).context("réponse du démon illisible")
+    serde_json::from_str(body).context("unreadable answer from the daemon")
 }
 
 /// Demande au démon une chaîne d'appairage à usage unique.
@@ -43,8 +43,8 @@ pub async fn pairing() -> Result<String> {
         .as_str()
         .map(str::to_string)
         .with_context(|| match answer["error"].as_str() {
-            Some(reason) => format!("appairage impossible : {reason}"),
-            None => format!("appairage refusé : {answer}"),
+            Some(reason) => format!("pairing failed: {reason}"),
+            None => format!("pairing refused: {answer}"),
         })
 }
 
@@ -57,7 +57,7 @@ pub async fn pair() -> Result<()> {
         .light_color(unicode::Dense1x2::Dark)
         .build();
     println!("{image}");
-    println!("Valable 5 minutes, pour un seul écran. Sans caméra :\n");
+    println!("Valid for 5 minutes, for one screen. Without a camera:\n");
     println!("  tallylight watch '{pairing}'");
     Ok(())
 }
@@ -66,7 +66,7 @@ pub async fn devices() -> Result<()> {
     let devices = request("GET", "/devices").await?;
     let devices = devices.as_array().cloned().unwrap_or_default();
     if devices.is_empty() {
-        println!("aucun écran appairé");
+        println!("no paired screen");
     }
     for device in devices {
         println!(
@@ -82,10 +82,10 @@ pub async fn unpair(prefix: &str) -> Result<()> {
     let answer = request("POST", &format!("/devices/{prefix}/remove")).await?;
     let removed = answer["removed"].as_array().cloned().unwrap_or_default();
     if removed.is_empty() {
-        bail!("aucun écran dont l'identité commence par « {prefix} »");
+        bail!("no screen whose identity starts with \"{prefix}\"");
     }
     for device in removed {
-        println!("retiré : {}", device["name"].as_str().unwrap_or_default());
+        println!("removed: {}", device["name"].as_str().unwrap_or_default());
     }
     Ok(())
 }

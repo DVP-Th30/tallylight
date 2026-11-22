@@ -227,7 +227,7 @@ impl Tallylight {
                 .worker_threads(2)
                 .enable_all()
                 .build()
-                .expect("démarrage du moteur asynchrone"),
+                .expect("could not start the async runtime"),
             data_dir,
             name,
             relays,
@@ -347,10 +347,10 @@ impl Follower {
                                 }
                                 self.machine.link = link;
                                 self.machine.sessions = convert(snapshot.sessions);
-                                self.known.lock().unwrap().insert(
-                                    self.machine.id.clone(),
-                                    self.machine.sessions.clone(),
-                                );
+                                self.known
+                                    .lock()
+                                    .unwrap()
+                                    .insert(self.machine.id.clone(), self.machine.sessions.clone());
                                 self.listener.on_machine(self.machine.clone());
                             }
                             None => self.link(link),
@@ -413,7 +413,7 @@ fn update(data_dir: &Path, change: impl FnOnce(&mut Vec<Saved>) -> bool) {
         && let Ok(bytes) = std::fs::read(&path)
         && serde_json::from_slice::<Vec<Saved>>(&bytes).is_err()
     {
-        let _ = std::fs::rename(&path, data_dir.join("machines.json.illisible"));
+        let _ = std::fs::rename(&path, data_dir.join("machines.json.unreadable"));
     }
     if change(&mut machines) {
         save(data_dir, &machines);
@@ -541,8 +541,8 @@ mod tests {
         .unwrap();
         assert_eq!(own.relay(), "https://relais.exemple.fr/");
         match Tallylight::with_relay(dir_text, "écran".into(), "relais.exemple.fr".into()) {
-            Err(ConfigError::BadRelay { reason }) => assert!(reason.contains("illisible")),
-            Ok(_) => panic!("relais mal écrit accepté"),
+            Err(ConfigError::BadRelay { reason }) => assert!(reason.contains("unreadable")),
+            Ok(_) => panic!("a malformed relay was accepted"),
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -620,7 +620,7 @@ mod tests {
         });
         assert_eq!(load(&dir), vec![saved("neuve")]);
         assert!(
-            std::fs::read_to_string(dir.join("machines.json.illisible"))
+            std::fs::read_to_string(dir.join("machines.json.unreadable"))
                 .unwrap()
                 .starts_with("[{")
         );

@@ -65,7 +65,7 @@ Constaté le 2026-11-21 : Encre affichait « aucune machine appairée ». Il ne 
 Désormais :
 - écriture dans un fichier temporaire puis renommage, pour la liste des machines de la bibliothèque comme pour tous les fichiers du démon (`write_private` : clé, ticket, écrans autorisés, sessions). Une interruption laisse l'ancien contenu entier ;
 - lecture-modification-écriture de la liste sous un verrou, et pas d'écriture quand rien ne change ;
-- une liste illisible est mise de côté (`machines.json.illisible`) au lieu d'être écrasée ;
+- une liste illisible est mise de côté (`machines.json.unreadable`) au lieu d'être écrasée ;
 - côté démon, le fichier temporaire est créé directement en 0600 : la clé secrète n'est plus lisible par d'autres utilisateurs, même un instant (avant : création avec les droits par défaut, puis `chmod`).
 Écarté : une base SQLite (dépendance lourde pour quelques lignes de JSON).
 Remède immédiat appliqué : nouvel appairage d'Encre avec serveurdvp et le Mac par adb.
@@ -77,6 +77,15 @@ Demande : voir sur l'écran quel modèle utilise chaque agent. Ni les hooks ni l
 Sont ignorés : les réponses des sous-agents (`isSidechain`) et les messages fabriqués par Claude Code (`<synthetic>`). Un changement de modèle en cours de session (`/model`) apparaît à la réponse suivante.
 Comme D9 : format interne de Claude Code, susceptible de changer ; une ligne illisible est ignorée et le modèle reste alors simplement inconnu. Rien d'autre que ce champ n'est lu ni envoyé.
 Écarté : demander le modèle à Claude Code (aucune interface pour cela) ; le déduire des réglages (`settings.json`), qui ne reflètent ni `/model` ni `--model`.
+
+## D14 — Anglais pour tout ce que voit l'utilisateur, français pour les notes de conception (2026-11-22)
+Avant le passage en public : messages du binaire, aide, journal du démon, README, `docs/PROTOCOL.md`, fichiers de contribution et de sécurité et page de présentation sont en anglais. Les commentaires du code et les notes de conception (`ARCHITECTURE`, `DECISIONS`, `INFRA`, `ETAT-DE-L-ART`) restent en français : ce sont les documents de travail du propriétaire, et les traduire doublerait leur entretien.
+Limite assumée : un contributeur non francophone lit le code sans ses commentaires. À revoir si des contributions arrivent.
+Écarté : tout traduire d'un coup (gros chantier sans effet sur l'utilisateur) ; une double doc français/anglais (les deux versions divergent).
+
+## D15 — Versions : binaires statiques par étiquette, script d'installation (2026-11-22)
+Une étiquette `v*` publie quatre binaires (Linux x86_64 et arm64 liés à musl, macOS Apple Silicon et Intel) avec leur empreinte SHA-256. Linux en musl : un binaire lié à la glibc de la machine de construction refuse de se lancer sur une distribution plus ancienne. `site/install.sh` installe la dernière version dans `~/.local/bin` après vérification de l'empreinte ; `cargo install --git` reste possible.
+Écarté pour l'instant : Homebrew, paquets `.deb` (à faire si la demande existe) ; cargo-dist (outil de plus pour quatre cibles) ; Windows (le service et les chemins sont propres à Unix).
 
 ## Questions ouvertes
 - Envoyer un message à une session Claude Code déjà ouverte (conditionne la voix) : Remote Control sans API, channels en aperçu, socket de boîte de réception au format non documenté. À valider par un essai.
