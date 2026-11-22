@@ -28,7 +28,7 @@ jobs:
       - run: cp target/${{ matrix.target }}/release/tallylight tallylight-${{ matrix.target }}
       # Version de développement, remplacée à chaque lancement
       - run: |
-          gh release view dev >/dev/null 2>&1 || gh release create dev --prerelease --title "Développement" --notes "Binaires de la branche main, remplacés à chaque construction."
+          gh release view dev >/dev/null 2>&1 || gh release create dev --prerelease --title "Development build" --notes "Built from the main branch and replaced on every build. For a stable version, take the latest release."
           gh release upload dev tallylight-${{ matrix.target }} --clobber
         env:
           GH_TOKEN: ${{ github.token }}
