@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta property="og:title" content="tallylight">
+<meta property="og:description" content="Know when it's your turn. The state of every coding agent, on the screens you choose. Open source, no account.">
+<meta property="og:type" content="website">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>tallylight</title>
+<meta name="description" content="Know when it's your turn. tallylight shows the state of every coding agent on the screens you choose. Private, direct, no account.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,300..600&family=Hanken+Grotesk:wght@400;500;600&display=swap">
+<style>
+/* Layout : une page d'objet, comme la fiche d'un appareil photo. Noir et blanc, beaucoup d'air ; une seule couleur, la lampe. */
+:root {
+  --paper: #f6f6f4;
+  --ink: #151515;
+  --muted: #6c6c69;
+  --rule: #d9d9d5;
+  --lamp: #d42a1f;
+  --lamp-soft: rgba(212, 42, 31, .22);
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --sans: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --measure: 58ch;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --paper: #10100f; --ink: #ecece8; --muted: #8e8e89; --rule: #2a2a28; --lamp: #ff4536; --lamp-soft: rgba(255, 69, 54, .28); color-scheme: dark; }
+}
+:root[data-theme="dark"] { --paper: #10100f; --ink: #ecece8; --muted: #8e8e89; --rule: #2a2a28; --lamp: #ff4536; --lamp-soft: rgba(255, 69, 54, .28); color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--paper); color: var(--ink); font: 400 17px/1.65 var(--sans); -webkit-font-smoothing: antialiased; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--paper); }
+a { color: inherit; text-decoration-color: var(--rule); text-underline-offset: 4px; }
+a:hover { text-decoration-color: var(--ink); }
+a:focus-visible { outline: 1px solid var(--ink); outline-offset: 4px; }
+code { font: 500 .9em ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+
+.wrap {
+  max-width: 1080px; margin: 0 auto;
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
+}
+
+/* La lampe */
+.lamp { display: inline-block; width: .42em; height: .42em; border-radius: 50%; background: var(--lamp); box-shadow: 0 0 0 0 var(--lamp-soft); vertical-align: .12em; flex: none; }
+.lamp.live { animation: glow 2.4s ease-in-out infinite; }
+@keyframes glow { 0%, 100% { box-shadow: 0 0 0 0 var(--lamp-soft); } 50% { box-shadow: 0 0 0 7px var(--lamp-soft); } }
+
+/* En-tête */
+.top .wrap { display: flex; justify-content: space-between; align-items: baseline; gap: 20px; padding-block: 28px; }
+.brand { font: 600 26px/1 var(--display); letter-spacing: .01em; display: inline-flex; align-items: baseline; gap: 8px; text-decoration: none; }
+.brand .lamp { width: 8px; height: 8px; vertical-align: 0; }
+.top nav { display: flex; gap: 28px; font-size: 14px; color: var(--muted); }
+.top nav a { text-decoration: none; }
+.top nav a:hover { color: var(--ink); }
+
+/* Ouverture */
+.open .wrap { padding-block: 72px 96px; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, .75fr); gap: 56px 80px; align-items: center; }
+.open h1 { font: 500 clamp(54px, 8.4vw, 112px)/.95 var(--display); letter-spacing: -.02em; margin: 0 0 32px; text-wrap: balance; }
+.open h1 em { font-style: italic; }
+.open .lede { font-size: 19px; max-width: 44ch; margin: 0; color: var(--ink); }
+.open .lede + .lede { color: var(--muted); font-size: 16px; margin-top: 14px; }
+
+/* L'objet : un écran d'appareil, liste d'agents */
+.device {
+  border: 1px solid var(--rule); border-radius: 28px; padding: 34px 30px 30px;
+  max-width: 340px; width: 100%; justify-self: end;
+}
+.device .time { font: 500 48px/1 var(--display); letter-spacing: -.01em; }
+.device .date { font-size: 13px; color: var(--muted); margin: 6px 0 26px; }
+.agents { list-style: none; margin: 0; padding: 0; display: grid; gap: 11px; }
+.agents li { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: center; gap: 12px; font-size: 15px; }
+.agents li span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agents .st { font-size: 12px; color: var(--muted); }
+.agents li.you span:nth-child(2) { font-weight: 600; }
+.agents li.you .st { color: var(--lamp); font-weight: 600; }
+.agents .gap { height: 6px; }
+.machine { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 2px; }
+.machine + .agents { margin-bottom: 18px; }
+
+/* Formes d'état, dessinées au trait */
+.s { width: 10px; height: 10px; justify-self: center; position: relative; }
+.s.working { border: 1.4px solid var(--ink); border-radius: 50%; }
+.s.done { background: var(--ink); border-radius: 50%; width: 7px; height: 7px; }
+.s.rest { background: var(--muted); border-radius: 50%; width: 4px; height: 4px; }
+.s.you { width: 9px; height: 9px; border-radius: 50%; background: var(--lamp); }
+
+/* Sections */
+section { border-top: 1px solid var(--rule); }
+section > .wrap { padding-block: 88px; }
+.kicker { font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); margin: 0 0 22px; }
+h2 { font: 500 clamp(36px, 4.6vw, 58px)/1.04 var(--display); letter-spacing: -.015em; margin: 0 0 28px; max-width: 18ch; text-wrap: balance; }
+h2 em { font-style: italic; }
+.prose p { max-width: var(--measure); margin: 0 0 16px; }
+.prose p.muted { color: var(--muted); }
+
+/* Trois idées */
+.three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 48px; margin-top: 56px; }
+.three h3 { font: 500 28px/1.1 var(--display); margin: 0 0 12px; }
+.three p { margin: 0; color: var(--muted); font-size: 16px; }
+
+/* Le nom */
+.story .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px 80px; align-items: start; }
+.story blockquote { margin: 0; font: italic 500 clamp(30px, 3.4vw, 44px)/1.18 var(--display); text-wrap: balance; }
+
+/* Trois gestes */
+.steps { list-style: none; padding: 0; margin: 48px 0 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 48px; }
+.steps li { border-top: 1px solid var(--ink); padding-top: 20px; }
+.steps .n { font: italic 500 22px/1 var(--display); color: var(--muted); display: block; margin-bottom: 18px; }
+.steps h3 { font: 500 30px/1.1 var(--display); margin: 0 0 10px; }
+.steps p { margin: 0; font-size: 16px; color: var(--muted); }
+.steps code { color: var(--ink); }
+
+/* Faits */
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 48px; margin: 48px 0 0; }
+.facts div { border-top: 1px solid var(--rule); padding: 22px 0 26px; }
+.facts dt { font: 500 40px/1 var(--display); margin-bottom: 10px; font-variant-numeric: lining-nums; }
+.facts dd { margin: 0; font-size: 15px; color: var(--muted); }
+
+/* Suite */
+.horizon { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 48px; margin-top: 48px; }
+.horizon h3 { font: italic 500 24px/1 var(--display); margin: 0 0 18px; padding-bottom: 14px; border-bottom: 1px solid var(--ink); display: flex; align-items: center; gap: 10px; }
+.horizon ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; }
+.horizon strong { display: block; font-weight: 600; font-size: 16px; margin-bottom: 2px; }
+.horizon span { display: block; font-size: 15px; color: var(--muted); }
+
+/* Développeurs */
+.dev .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 40px 80px; align-items: end; }
+.cmdline { border: 1px solid var(--rule); border-radius: 14px; padding: 18px 22px; overflow-x: auto; white-space: nowrap; font-size: 15px; }
+.cmdline code::before { content: "$ "; color: var(--muted); }
+.cmdline + p { font-size: 14px; color: var(--muted); margin: 14px 0 0; }
+
+/* Titres en grotesque large et légère, sans italique : le ton d'une fiche d'horlogerie ou d'automobile */
+.brand, h1, h2, h3, .device .time, .facts dt, .story blockquote, .steps .n { font-stretch: 125%; }
+.open h1 { font-weight: 300; font-size: clamp(44px, 6.6vw, 88px); line-height: 1; letter-spacing: -.015em; }
+h2 { font-weight: 300; font-size: clamp(30px, 3.8vw, 46px); line-height: 1.08; letter-spacing: -.01em; }
+.open h1 em, h2 em { font-style: normal; color: var(--muted); }
+.brand { font-weight: 500; font-size: 19px; letter-spacing: -.01em; }
+.three h3, .steps h3 { font-weight: 400; font-size: 22px; }
+.story blockquote { font-style: normal; font-weight: 300; font-size: clamp(24px, 2.7vw, 34px); line-height: 1.25; }
+.steps .n, .horizon h3 { font-style: normal; font-weight: 400; font-size: 13px; letter-spacing: .14em; text-transform: uppercase; }
+.horizon h3 { font-size: 13px; }
+.device .time { font-weight: 300; font-size: 44px; }
+.facts dt { font-weight: 300; font-size: 34px; }
+
+/* Ce qui distingue : une affirmation, une phrase */
+.diff { margin: 44px 0 0; border-top: 1px solid var(--ink); }
+.diff div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 6px 48px; padding: 22px 0; border-bottom: 1px solid var(--rule); }
+.diff dt { font: 400 20px/1.3 var(--display); font-stretch: 125%; }
+.diff dd { margin: 0; color: var(--muted); font-size: 16px; max-width: 52ch; }
+@media (max-width: 680px) { .diff div { grid-template-columns: minmax(0, 1fr); } }
+
+footer .wrap { border-top: 1px solid var(--rule); padding-block: 40px 64px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; font-size: 14px; color: var(--muted); }
+
+@media (max-width: 860px) {
+  .open .wrap, .story .wrap, .dev .wrap { grid-template-columns: minmax(0, 1fr); }
+  .open .wrap { padding-block: 40px 72px; }
+  .device { justify-self: start; }
+  .three, .steps, .horizon { grid-template-columns: minmax(0, 1fr); gap: 36px; }
+  .facts { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 24px; }
+  section > .wrap { padding-block: 64px; }
+  .top nav { display: none; }
+}
+@media (max-width: 480px) {
+  .facts { grid-template-columns: minmax(0, 1fr); }
+  .device { padding: 28px 22px 24px; }
+}
+@media (prefers-reduced-motion: reduce) { .lamp.live { animation: none; } }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#"><span class="lamp"></span>tallylight</a>
+    <nav aria-label="Sections">
+      <a href="#idea">The idea</a>
+      <a href="#different">Why it's different</a>
+      <a href="#how">How it works</a>
+      <a href="#next">What's next</a>
+      <a href="https://github.com/DVP-Th30/tallylight">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="open">
+  <div class="wrap">
+    <div>
+      <h1>Know when it's <em>your&nbsp;turn.</em></h1>
+      <p class="lede">tallylight shows the state of every coding agent you run, on the screens you choose. Working, waiting for you, done. One glance, nothing to open.</p>
+      <p class="lede">Private and direct, from your machines to your screens. No account, no cloud in between.</p>
+    </div>
+
+    <div class="device" aria-label="Example: a phone screen listing agents on two machines">
+      <div class="time">9:41</div>
+      <div class="date">Sunday, November 22</div>
+      <p class="machine">Studio</p>
+      <ul class="agents">
+        <li class="you"><span class="s you lamp live" style="font-size:22px"></span><span>billing-api</span><span class="st">needs you</span></li>
+        <li><span class="s working"></span><span>docs-site</span><span class="st">working</span></li>
+        <li><span class="s done"></span><span>infra</span><span class="st">done · 6 min</span></li>
+      </ul>
+      <p class="machine">Laptop</p>
+      <ul class="agents">
+        <li><span class="s working"></span><span>mobile-app</span><span class="st">working</span></li>
+        <li><span class="s rest"></span><span>landing</span><span class="st">idle</span></li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<section id="idea">
+  <div class="wrap">
+    <p class="kicker">The idea</p>
+    <h2>Agents work for an hour, then wait <em>in silence.</em></h2>
+    <div class="prose">
+      <p>You start one on the server, two on your laptop, and go back to your own work. Somewhere a permission prompt has been waiting for twenty minutes. Nothing tells you, until you happen to look at the right window.</p>
+      <p class="muted">tallylight is the missing signal. It sits quietly next to your agents and lets any screen know, the moment one of them needs you.</p>
+    </div>
+    <div class="three">
+      <div><h3>Every agent</h3><p>Every session on every machine, each in its place, with what it's doing and which model is answering.</p></div>
+      <div><h3>Any screen</h3><p>A phone, a tablet by the desk, a terminal, an e‑ink launcher. Your app can show it too.</p></div>
+      <div><h3>Only yours</h3><p>End to end encrypted. Your code and what your commands print never leave the machine.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="different">
+  <div class="wrap">
+    <p class="kicker">Why it's different</p>
+    <h2>Others built an app. <em>We built the missing piece.</em></h2>
+    <div class="prose"><p class="muted">Plenty of tools show agent status. Each one asks for something in return: an account, a subscription, a single vendor, a single network. tallylight asks for none of it.</p></div>
+    <dl class="diff">
+      <div><dt>Free and open source</dt><dd>MIT or Apache-2.0. No paid tier, no subscription, nothing held back.</dd></div>
+      <div><dt>No account</dt><dd>Your machines pair directly with your screens. No sign-up, and no company server that sees your sessions.</dd></div>
+      <div><dt>Works away from home</dt><dd>Not limited to your local network. It connects straight through home and office routers, with an encrypted relay as a fallback.</dd></div>
+      <div><dt>Nothing to change in how you work</dt><dd>It follows agents where they already run. No wrapper, no special terminal, no need to start them through it.</dd></div>
+      <div><dt>Not tied to one vendor or one screen</dt><dd>States follow the open A2A standard, and any app can embed the library to show them its own way.</dd></div>
+    </dl>
+  </div>
+</section>
+
+<section class="story">
+  <div class="wrap">
+    <blockquote>On a television set, a small red lamp sits on top of each camera. When it lights, everyone knows which one is live.</blockquote>
+    <div class="prose">
+      <p class="kicker">The name</p>
+      <p>It's called a tally light. The presenter doesn't check the monitors; they look for the red lamp.</p>
+      <p class="muted">We wanted the same for agents: a calm screen where nothing moves until something needs you, and then one light comes on.</p>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <p class="kicker">How it works</p>
+    <h2>Three steps, then <em>forget about it.</em></h2>
+    <ol class="steps">
+      <li><span class="n">one</span><h3>Install</h3><p>A single small program per machine. It listens to the signals your agent already sends; it never launches or wraps it. <code>tallylight install</code></p></li>
+      <li><span class="n">two</span><h3>Pair</h3><p>Scan a QR code from your screen. The code works once and expires after five minutes. <code>tallylight pair</code></p></li>
+      <li><span class="n">three</span><h3>Glance</h3><p>Each agent shows as working, waiting for you, done or stopped on an error. Every state has its own shape, so it reads even in black and white.</p></li>
+    </ol>
+    <dl class="facts">
+      <div><dt>8 ms</dt><dd>from machine to screen on the same Wi‑Fi</dd></div>
+      <div><dt>No account</dt><dd>no sign-up, no server of ours, nothing to pay</dd></div>
+      <div><dt>Open source</dt><dd>MIT or Apache-2.0, written in Rust</dd></div>
+    </dl>
+  </div>
+</section>
+
+<section id="next">
+  <div class="wrap">
+    <p class="kicker">What's next</p>
+    <h2>Today Claude Code. <em>Tomorrow the rest.</em></h2>
+    <div class="prose"><p class="muted">tallylight follows Claude Code on macOS and Linux today. What follows is the plan, in order.</p></div>
+    <div class="horizon">
+      <div>
+        <h3><span class="lamp live"></span>Now</h3>
+        <ul>
+          <li><strong>Claude Code</strong><span>Every session, its model, what it's doing.</span></li>
+          <li><strong>Terminal and Android</strong><span>A terminal view, and a library any Android app can embed.</span></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Next</h3>
+        <ul>
+          <li><strong>More agents</strong><span>Codex, Copilot CLI, Cursor and OpenCode. Close by design, not tested yet.</span></li>
+          <li><strong>iPhone and Mac</strong><span>The same library, for Apple screens.</span></li>
+          <li><strong>Your own relay</strong><span>One command to run the fallback relay on your own server.</span></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Later</h3>
+        <ul>
+          <li><strong>A desk object</strong><span>A small Bluetooth display that lights up when an agent waits.</span></li>
+          <li><strong>Wake a sleeping phone</strong><span>Optional notifications, run by each app with its own keys.</span></li>
+          <li><strong>Answer from the screen</strong><span>Approve a request without walking back to the keyboard.</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="dev">
+  <div class="wrap">
+    <div>
+      <p class="kicker">For developers</p>
+      <h2>A building block, <em>not another app.</em></h2>
+      <div class="prose"><p class="muted">The daemon, the state format and the client library are the product. States follow the A2A standard, and the library is plain Rust with Kotlin bindings, Swift next.</p></div>
+    </div>
+    <div>
+      <div class="cmdline"><code>cargo install --git https://github.com/DVP-Th30/tallylight tallylight</code></div>
+      <p>Then <code>tallylight install</code> and <code>tallylight pair</code>. Source, docs and design notes on <a href="https://github.com/DVP-Th30/tallylight">GitHub</a>.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span><span class="lamp"></span>&nbsp; tallylight</span>
+    <span>MIT or Apache-2.0 · <a href="https://github.com/DVP-Th30/tallylight">github.com/DVP-Th30/tallylight</a></span>
+  </div>
+</footer>
+</body>
+</html>
