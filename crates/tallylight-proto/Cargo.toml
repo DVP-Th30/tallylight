@@ -14,5 +14,5 @@ publish = false
 anyhow = "1.0.104"
 iroh = "1.4.2"
 iroh-tickets = "1.0.0"
-tallylight-core = { version = "0.1.2", path = "../tallylight-core" }
+tallylight-core = { version = "0.2.0", path = "../tallylight-core" }
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "io-util", "time"] }

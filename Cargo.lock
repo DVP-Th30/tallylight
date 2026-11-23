@@ -3114,7 +3114,7 @@ dependencies = [
 
 [[package]]
 name = "tallylight"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3133,14 +3133,14 @@ dependencies = [
 
 [[package]]
 name = "tallylight-bindgen"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "uniffi",
 ]
 
 [[package]]
 name = "tallylight-client"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "iroh",
  "iroh-tickets",
@@ -3152,7 +3152,7 @@ dependencies = [
 
 [[package]]
 name = "tallylight-core"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -3160,7 +3160,7 @@ dependencies = [
 
 [[package]]
 name = "tallylight-ffi"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "iroh",
  "jni 0.21.1",
@@ -3174,7 +3174,7 @@ dependencies = [
 
 [[package]]
 name = "tallylight-proto"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "iroh",

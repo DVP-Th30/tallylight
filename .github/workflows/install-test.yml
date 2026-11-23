@@ -12,7 +12,7 @@ on:
         default: public-url
       version:
         description: étiquette à essayer en mode release-assets
-        default: v0.1.2
+        default: v0.2.0
 
 permissions:
   contents: read

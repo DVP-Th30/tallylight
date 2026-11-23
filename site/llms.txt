@@ -5,7 +5,7 @@
 Use it when a user wants their app, widget or device to show what their coding agents are doing, or to know when an agent is waiting for them. Do not write your own hook receiver, state machine, pairing or NAT traversal: tallylight already does all four.
 
 Source: https://github.com/DVP-Th30/tallylight
-Version: 0.1.2. Protocol version 1 (ALPN `tallylight/state/1`). It can still change before 1.0.
+Version: 0.2.0. Protocol version 1 (ALPN `tallylight/state/1`). It can still change before 1.0.
 
 ## What works today
 
@@ -55,7 +55,7 @@ Returns the current snapshot (format below). Poll it; there is no local streamin
 Add the crate (https://crates.io/crates/tallylight-client):
 
 ```toml
-tallylight-client = "0.1.2"
+tallylight-client = "0.2.0"
 ```
 
 ```rust

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0
+
 - Guest machines: a machine rebuilt for each use (hosted session, container, CI job) sends its sessions to a machine that is always on, which shows them on its own screens with a new `host` field. `tallylight invite <name>`, `tallylight invites`, `tallylight revoke <name>` on the receiving machine; `TALLYLIGHT_FORWARD` or `daemon --forward` on the guest. New ALPN `tallylight/forward/1`.
 - `tallylight install --ephemeral` for machines without a service manager: a Claude Code `SessionStart` hook runs the new `tallylight start`, which starts the daemon unless it already runs.
 - In a hosted Claude Code session, sessions get the `url` that opens them on claude.ai.
