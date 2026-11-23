@@ -5,7 +5,7 @@
 Use it when a user wants their app, widget or device to show what their coding agents are doing, or to know when an agent is waiting for them. Do not write your own hook receiver, state machine, pairing or NAT traversal: tallylight already does all four.
 
 Source: https://github.com/DVP-Th30/tallylight
-Version: 0.1.1. Protocol version 1 (ALPN `tallylight/state/1`). It can still change before 1.0.
+Version: 0.1.2. Protocol version 1 (ALPN `tallylight/state/1`). It can still change before 1.0.
 
 ## What works today
 
@@ -44,7 +44,7 @@ Returns the current snapshot (format below). Poll it; there is no local streamin
 Add the crate (https://crates.io/crates/tallylight-client):
 
 ```toml
-tallylight-client = "0.1.1"
+tallylight-client = "0.1.2"
 ```
 
 ```rust
@@ -146,6 +146,7 @@ One JSON object per change, per machine. It is the full list of sessions, not a 
 - **A sleeping phone is not woken up.** tallylight delivers state over a live connection. When the operating system suspends the app (screen off, app in the background on iOS or Android), nothing arrives until the app runs again. Waking a phone requires a push notification sent through Google (FCM) or Apple (APNs) by a server that is always on and holds the app's own push keys. tallylight does not include that server. A hosted wake-up service is planned and not available yet. Until then, do not promise notifications on a locked phone; a foreground service on Android is the only workaround, and it costs battery.
 - **Codex sessions never report `failed`.** Codex has no hook for a turn that ends on an error: the session keeps its last state (usually `working`) until its next event. A Codex process that is killed stays listed in its last state for up to 12 hours. Codex sessions have no `title` and no `url`.
 - **Default relays are for development.** When no direct path exists, traffic goes through public relays run by the maintainers of iroh: rate-limited, no uptime guarantee. For anything serious, run your own `iroh-relay` and pass `--relay https://relay.example.com` (or `TALLYLIGHT_RELAY`).
+- **Behind an outbound proxy** (corporate network, hosted agent sandbox; since 0.1.2): tallylight reaches relays through the proxy named by `HTTP_PROXY` or `HTTPS_PROXY`, and every connection is relayed. The proxy must allow `dns.iroh.link` and the relay hosts (`*.relay.n0.iroh.link` by default). Hosted agent sessions (Claude Code on the web): hooks were seen working with the daemon started by hand (`tallylight install --no-service`, then `tallylight daemon`); pairing from such a session is not verified yet.
 - **Trust model of the local port.** `127.0.0.1:47700` trusts every local process.
 - **What leaves the machine.** State, working directory, title, tool name, the one-line detail, the start of the last message, the model name. Never file contents or command output.
 

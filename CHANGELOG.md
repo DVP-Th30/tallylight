@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.2
+
 - Outbound proxy: the daemon and the screens reach relays through the proxy named by `HTTP_PROXY` or `HTTPS_PROXY` (corporate networks, hosted agent sandboxes). Behind a proxy every connection is relayed. Checked with a local test proxy, not yet end to end in a hosted session.
 - The daemon log says so when no relay has been reached after 20 seconds, instead of staying silent.
 - Errors no longer print a stack backtrace when `RUST_BACKTRACE` is set on the machine.
