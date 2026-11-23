@@ -257,9 +257,14 @@ fn render(snapshot: &Snapshot, now: u64) -> String {
             1 => " · 1 background task".to_string(),
             count => format!(" · {count} background tasks"),
         };
+        // Session d'une machine invitée : son nom précède celui de la session
+        let name = match session.host.as_deref() {
+            Some(host) => format!("{host} › {}", session.label()),
+            None => session.label().to_string(),
+        };
         out.push_str(&format!(
             "  {mark} {:<24} {label}{tool}{background} · {}\n",
-            session.label(),
+            name,
             ago(now.saturating_sub(session.updated_at)),
         ));
     }
@@ -322,6 +327,7 @@ mod tests {
             url: None,
             model: None,
             background_tasks: 0,
+            host: None,
             updated_at,
         }
     }

@@ -61,7 +61,8 @@ A snapshot is the full list of sessions on the machine, not a diff. A session th
 | `last_message` | string or null | First 600 characters of the agent's last message, set when a turn ends, cleared when the next one starts. |
 | `url` | string or null | Opens the session in the agent's own app, when there is one. |
 | `model` | string or null | Identifier of the model that answered last, for example `claude-opus-5-5`; for Codex, the session's model. |
-| `background_tasks` | integer | Since 0.1.3; absent means 0. Background tasks (a command started in the background, a subagent…) still running when the last turn ended: the agent may resume by itself when one finishes, or the task may run forever (a dev server). `completed` with a non-zero count means "done for now". 0 while a turn is in progress. Claude Code only. |
+| `background_tasks` | integer | Since 0.2.0; absent means 0. Background tasks (a command started in the background, a subagent…) still running when the last turn ended: the agent may resume by itself when one finishes, or the task may run forever (a dev server). `completed` with a non-zero count means "done for now". 0 while a turn is in progress. Claude Code only. |
+| `host` | string or null | Since 0.2.0; absent means null. Name of the machine where the session really runs, when it is not the machine of the snapshot: a guest machine (hosted session, container) whose sessions this machine passes on. See [Guest machines](#guest-machines). Group by it, or ignore it. |
 | `updated_at` | integer | Unix seconds of the last state or tool change. |
 
 Unknown fields must be ignored: new ones may be added without a new protocol version.
@@ -79,6 +80,22 @@ The values of `state` follow `TaskState` from A2A 1.0.
 | `canceled` | The turn was interrupted. |
 
 Not every agent can report every state: Codex sessions never show `failed`, because Codex has no event for a turn that ends on an error.
+
+## Guest machines
+
+Since 0.2.0. A machine that is rebuilt for each use (a hosted agent session, a container, a CI job) cannot be paired with screens once and for all. It can send its sessions to a machine that is always on, which adds them to its own snapshot, with `host` set.
+
+- **Receiving machine**: `tallylight invite <name>` prints an invitation, `<ticket>#<secret>`. The secret starts with `inv`, does not expire and works for several machines at once, until `tallylight revoke <name>`.
+- **Guest machine**: runs its daemon with the invitation (`TALLYLIGHT_FORWARD` or `--forward`).
+
+1. The guest opens a QUIC connection to the receiving machine with ALPN `tallylight/forward/1`, then one bidirectional stream.
+2. The guest sends one line: `{"name": "vm", "invite": "inv…"}`.
+3. The receiving machine answers `{"ok": true}`, or `{"ok": false}` and closes (unknown or revoked invitation, or more than 20 machines connected through it).
+4. The guest sends one `Snapshot` line immediately, then one per change. Nothing else comes back.
+
+The receiving machine does not trust a guest: it sets `host` itself (the invitation's name, then `name 2`, `name 3`… for machines connected at the same time), keeps at most 50 sessions per guest, shortens every text, drops control characters, keeps a `url` only if it starts with `https://`, and ignores a session whose `id` it already shows. A line longer than 256 KiB closes the connection. When the connection ends, the guest's sessions leave the snapshot.
+
+A guest only sends its own sessions, never those it receives from its own guests.
 
 ## Local HTTP
 

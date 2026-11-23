@@ -87,6 +87,41 @@ async fn post(port: u16, path: &str, body: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// `tallylight start` : lance le démon en arrière-plan s'il ne répond pas déjà sur `port`. Appelé
+/// par un hook de début de session sur les machines sans service : ne dit rien quand tout va bien
+/// (la sortie d'un tel hook est versée dans le contexte de l'agent).
+#[cfg(unix)]
+pub fn start(port: u16) -> Result<()> {
+    use std::{
+        net::{Ipv4Addr, SocketAddr},
+        os::unix::process::CommandExt,
+        process::{Command, Stdio},
+    };
+    let address = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+    if std::net::TcpStream::connect_timeout(&address, Duration::from_millis(300)).is_ok() {
+        return Ok(());
+    }
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(crate::data_dir()?.join("daemon.log"))?;
+    Command::new(std::env::current_exe()?)
+        .args(["daemon", "--port", &port.to_string()])
+        .stdin(Stdio::null())
+        .stdout(log.try_clone()?)
+        .stderr(log)
+        // Son propre groupe : le démon survit à la commande (ou au hook) qui l'a lancé
+        .process_group(0)
+        .spawn()
+        .context("could not start the daemon")?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+pub fn start(_port: u16) -> Result<()> {
+    bail!("`start` is not available on Windows: `tallylight install` runs the daemon at logon")
+}
+
 /// Demande au démon une chaîne d'appairage à usage unique.
 pub async fn pairing() -> Result<String> {
     let answer = request("POST", "/pair").await?;
@@ -110,6 +145,57 @@ pub async fn pair() -> Result<()> {
     println!("{image}");
     println!("Valid for 5 minutes, for one screen. Without a camera:\n");
     println!("  tallylight watch '{pairing}'");
+    Ok(())
+}
+
+/// `tallylight invite <name>` : crée une invitation et affiche la chaîne à confier à la machine invitée.
+pub async fn invite(name: &str) -> Result<()> {
+    let answer = request("POST", &format!("/invites/{name}")).await?;
+    let invitation =
+        answer["invitation"]
+            .as_str()
+            .with_context(|| match answer["error"].as_str() {
+                Some(reason) => reason.to_string(),
+                None => format!("invitation refused: {answer}"),
+            })?;
+    println!("Invitation \"{name}\". On the machine whose sessions should show up here:\n");
+    println!("  TALLYLIGHT_FORWARD='{invitation}'\n");
+    println!(
+        "Set it in the environment of its daemon (or run `tallylight daemon --forward '<invitation>'`)."
+    );
+    println!(
+        "It is a secret, shown once: whoever holds it can make sessions appear on your screens, \
+         until you run `tallylight revoke {name}`. It does not expire and works for several machines."
+    );
+    Ok(())
+}
+
+pub async fn invites() -> Result<()> {
+    let invites = request("GET", "/invites").await?;
+    let invites = invites.as_array().cloned().unwrap_or_default();
+    if invites.is_empty() {
+        println!("no invitation (create one with `tallylight invite <name>`)");
+    }
+    for invite in invites {
+        let connected = match invite["connected"].as_u64().unwrap_or_default() {
+            0 => "no machine connected".to_string(),
+            1 => "1 machine connected".to_string(),
+            count => format!("{count} machines connected"),
+        };
+        println!(
+            "{}  {connected}",
+            invite["name"].as_str().unwrap_or_default()
+        );
+    }
+    Ok(())
+}
+
+pub async fn revoke(name: &str) -> Result<()> {
+    let answer = request("POST", &format!("/invites/{name}/remove")).await?;
+    if answer["removed"].as_bool() != Some(true) {
+        bail!("no invitation named \"{name}\" (see `tallylight invites`)");
+    }
+    println!("revoked: {name}");
     Ok(())
 }
 

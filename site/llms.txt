@@ -27,6 +27,17 @@ tallylight pair
 - `tallylight pair` prints a QR code and a pairing string `<ticket>#<code>`. The code works once and expires after five minutes. After pairing, the screen reconnects with the ticket alone.
 - Other commands: `tallylight watch`, `tallylight devices`, `tallylight unpair <id>`, `tallylight name <name>`, `tallylight uninstall`, `tallylight --help`.
 
+## Hosted sessions, containers, CI (since 0.2.0)
+
+A machine rebuilt for each use cannot stay paired with screens. Make it a guest of a machine that is always on:
+
+- On the always-on machine: `tallylight invite cloud` prints an invitation (a secret, no expiry, several machines at once; `tallylight revoke cloud` cancels it).
+- In the short-lived environment: set `TALLYLIGHT_FORWARD` to the invitation, and run the installer then `tallylight install --ephemeral` in its setup script. `--ephemeral` adds a Claude Code `SessionStart` hook that runs `tallylight start` (starts the daemon unless it runs), because there is no service manager.
+- Claude Code on the web: fetch the installer from `https://raw.githubusercontent.com/DVP-Th30/tallylight/main/site/install.sh` (GitHub is allowed by default, the project site is not) and add `*.iroh.link` to the allowed domains.
+- The guest's sessions arrive in the always-on machine's snapshot with `host` set (`cloud`, `cloud 2`…). Screens need no new pairing.
+
+Status, to tell the user: checked between two daemons on one machine with a real Claude Code session; not yet tried with the invitation in a real hosted session.
+
 ## Four ways to build a screen
 
 ### 1. Same machine: local HTTP (simplest)
@@ -129,6 +140,7 @@ One JSON object per change, per machine. It is the full list of sessions, not a 
       "url": null,
       "model": "claude-opus-5-5",
       "background_tasks": 0,
+      "host": null,
       "updated_at": 1795298089
     }
   ]
@@ -140,7 +152,8 @@ One JSON object per change, per machine. It is the full list of sessions, not a 
 - `title`: may be null; fall back to the last component of `cwd`.
 - `tool`, `detail`: what is running or what is being asked (one line, 140 characters at most).
 - `last_message`: first 600 characters of the agent's last message, set when a turn ends.
-- `background_tasks` (since 0.1.3, absent means 0): background tasks still running when the last turn ended. With `completed`, a non-zero count means the agent may resume by itself; show it ("done · 1 background task") rather than hiding it. It can also be a task that never ends, such as a dev server. Claude Code only.
+- `background_tasks` (since 0.2.0, absent means 0): background tasks still running when the last turn ended. With `completed`, a non-zero count means the agent may resume by itself; show it ("done · 1 background task") rather than hiding it. It can also be a task that never ends, such as a dev server. Claude Code only.
+- `host` (since 0.2.0, absent means null): the machine where the session really runs when it is a guest of the snapshot's machine. Show it, or group sessions by it.
 - `updated_at`: Unix seconds of the last state or tool change.
 
 ## Limits you must tell the user about

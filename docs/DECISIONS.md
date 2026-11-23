@@ -188,6 +188,22 @@ Décision : la session garde l'état `completed` et gagne un champ `background_t
 - Le nombre date du dernier `Stop` : une tâche qui se termine sans réveiller l'agent le laisserait faux jusqu'au tour suivant (non observé : la fin d'une commande de fond a réveillé l'agent).
 - Codex n'envoie rien de tel : toujours zéro.
 
+## D21 — Machines invitées : une machine éphémère envoie ses sessions à une machine d'accueil (2026-11-23)
+Problème : une session hébergée en ligne (Claude Code « sur le web »), un conteneur ou une machine d'intégration continue est recréé à chaque usage. Son identité réseau change, donc l'appairage avec chaque écran serait à refaire à chaque session ; et plusieurs sessions tournent souvent en parallèle.
+
+Décision : deux rôles. La **machine d'accueil** (toujours allumée, déjà appairée aux écrans) crée une invitation (`tallylight invite <nom>`) ; la **machine invitée** lance son démon avec cette invitation (`TALLYLIGHT_FORWARD` ou `--forward`) et lui pousse ses instantanés par iroh, ALPN `tallylight/forward/1`. La machine d'accueil ajoute ces sessions à son propre instantané, avec le champ `host`. Les écrans n'ont rien à appairer.
+- Écarté : une identité fixe rangée dans une variable de l'environnement. Deux sessions en parallèle auraient la même identité réseau, et la clé lisible par l'agent permettrait de se faire passer pour la machine.
+- L'invitation est « ticket#secret », le secret commençant par `inv` (une chaîne d'appairage donnée par erreur est reconnue et refusée avec un message clair). Elle n'expire pas et sert à plusieurs machines : la variable d'un environnement en ligne ne se modifie pas à chaque session. Elle se révoque (`tallylight revoke`), ce qui ferme les connexions en cours (constaté en 5 s au plus).
+- Ce que permet une invitation : faire afficher des sessions. La machine d'accueil ne renvoie rien à une invitée. L'agent de l'environnement peut lire la variable : le pire cas d'une fuite est l'affichage de fausses sessions, jusqu'à révocation.
+- Une invitée n'est pas de confiance (`guests::trusted`) : `host` imposé (nom de l'invitation, numéroté pour les machines simultanées), 50 sessions et 20 machines par invitation au plus, textes bornés et sans caractère de contrôle, lien gardé seulement s'il est en `https://`, identifiant déjà affiché ignoré, ligne de 256 Kio au plus, 100 ms au moins entre deux instantanés.
+- Les sessions invitées ne sont pas enregistrées sur disque et disparaissent à la fin de la connexion (30 s environ après la mort brutale de l'invitée, délai d'inactivité de QUIC).
+- Les sessions s'ajoutent à l'instantané de la machine d'accueil plutôt que d'arriver comme une machine à part : un écran existant les affiche sans modification, dans la section de la machine d'accueil.
+- Machine sans gestionnaire de services : `tallylight install --ephemeral` ajoute un hook `SessionStart` de type commande qui lance `tallylight start` (démon en arrière-plan s'il ne répond pas, journal dans `daemon.log` du dossier de données). `start` ne dit rien : la sortie d'un hook `SessionStart` est versée dans le contexte de l'agent.
+- Session hébergée de Claude Code : le lien `url` vient de `CLAUDE_CODE_REMOTE_SESSION_ID` quand `CLAUDE_CODE_REMOTE` vaut `true` (documentation lue le 2026-11-23).
+- Service hébergé futur : il pourra tenir le rôle de machine d'accueil pour ceux qui n'ont pas de machine allumée. La machine d'accueil lit aujourd'hui ce qu'elle rediffuse ; un service tiers devra ne transporter que du contenu chiffré pour les écrans. Rien n'est codé pour cela.
+
+Vérifié le 2026-11-23 sur le Mac, deux démons d'essai (ports 47796 et 47797) : invitation, connexion, session rediffusée avec `host`, révocation ; puis une vraie session Claude Code dont le hook `SessionStart` lance le démon invité, états `working` puis `completed` vus sur la machine d'accueil, disparition après l'arrêt de l'invitée. Non vérifié : une vraie session hébergée avec l'invitation (script de démarrage, variable d'environnement vue par le hook, proxy) ; Windows comme machine invitée (`start` n'y existe pas).
+
 ## Questions ouvertes
 - Codex : obtenir `failed` (voir D17, piste `PostModelRequest`) et savoir qu'un processus Codex est mort sans événement de fin.
 - Envoyer un message à une session Claude Code déjà ouverte (conditionne la voix) : Remote Control sans API, channels en aperçu, socket de boîte de réception au format non documenté. À valider par un essai.
