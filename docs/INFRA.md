@@ -51,6 +51,8 @@ Fait le 2026-11-22 : dépôt public, Pages et signalement privé de failles acti
 6. Renseigner la page du dépôt : `gh repo edit --homepage https://dvp-th30.github.io/tallylight/ --add-topic claude-code --add-topic coding-agents --add-topic rust --add-topic iroh --add-topic a2a`.
 7. crates.io (fait le 2026-11-23 pour la 0.1.1 : `tallylight-core`, `tallylight-client`, `tallylight-ffi`, `tallylight`) : `cargo publish -p tallylight-core -p tallylight-client -p tallylight-ffi -p tallylight`, irréversible, après un essai avec `--dry-run` ; le compte crates.io doit avoir une adresse vérifiée ; les crates `tallylight-proto` et `tallylight-bindgen` ne se publient pas (`publish = false`).
 
+Version `v0.2.0` publiée le 2026-11-23 (machines invitées D21, compteur de tâches de fond D20) : `install-test` vert sur les mêmes systèmes, Windows compris (run 45280476631) ; crates.io en 0.2.0 le même jour. Ce soir-là, les machines macOS de GitHub manquaient (tâches annulées après 15 minutes d'attente, à relancer) et `pages` a échoué deux fois sur une erreur de GitHub avant de passer.
+
 Version `v0.1.2` publiée le 2026-11-23 (proxy sortant, D19) : `install-test` vert sur les mêmes systèmes, Windows compris (run 45260774708) ; crates.io en 0.1.2 le même jour.
 
 Version `v0.1.1` publiée le 2026-11-23 (Windows, Codex, paquet Swift ; AAR reconstruit avec iroh 1.4.2) : `install-test` vert sur les dix systèmes et sur Windows avec la commande publique (run 45081817913).
