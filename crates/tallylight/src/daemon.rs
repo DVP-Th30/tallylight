@@ -48,6 +48,12 @@ struct App {
 /// Temps laissé au réseau quand un appairage est demandé juste après le lancement.
 const TICKET_PATIENCE: Duration = Duration::from_secs(15);
 
+/// Délai au bout duquel le journal dit que le réseau n'est pas joint, au lieu de rester muet.
+const ONLINE_PATIENCE: Duration = Duration::from_secs(20);
+
+/// Variables lues par iroh pour trouver un proxy sortant.
+const PROXY_VARIABLES: [&str; 4] = ["HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"];
+
 pub async fn run(port: u16, relays: Relays) -> Result<()> {
     // Le port local d'abord : suivre les sessions de la machine ne dépend pas du réseau.
     // Les hooks et les commandes locales n'arrivent que de la machine elle-même
@@ -59,6 +65,14 @@ pub async fn run(port: u16, relays: Relays) -> Result<()> {
         println!("relay: n0 (public, meant for development; --relay to use your own)");
     } else {
         println!("relay: {relays}");
+    }
+
+    // Sans l'adresse : elle peut contenir un mot de passe
+    if PROXY_VARIABLES
+        .iter()
+        .any(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()))
+    {
+        println!("proxy: taken from the environment, relays are reached through it");
     }
 
     // Le relais effectif part dans le ticket : `endpoint.addr()` annonce le relais joint
@@ -82,7 +96,15 @@ pub async fn run(port: u16, relays: Relays) -> Result<()> {
         let ticket_file = data_dir()?.join("ticket");
         async move {
             // Joint quand un relais a répondu : avec un relais injoignable, l'attente dure aussi
-            endpoint.online().await;
+            if tokio::time::timeout(ONLINE_PATIENCE, endpoint.online())
+                .await
+                .is_err()
+            {
+                println!(
+                    "not online yet: no relay reached (offline, or blocked by a firewall or proxy?); still trying"
+                );
+                endpoint.online().await;
+            }
             let address = endpoint.addr();
             let joined: Vec<String> = address.relay_urls().map(ToString::to_string).collect();
             let ticket = EndpointTicket::new(address).to_string();
