@@ -41,10 +41,10 @@ Returns the current snapshot (format below). Poll it; there is no local streamin
 
 ### 2. Another device, in Rust
 
-Add the crate from git (it is not on crates.io yet):
+Add the crate (https://crates.io/crates/tallylight-client):
 
 ```toml
-tallylight-client = { git = "https://github.com/DVP-Th30/tallylight" }
+tallylight-client = "0.1.1"
 ```
 
 ```rust

@@ -49,7 +49,7 @@ Fait le 2026-11-22 : dépôt public, Pages et signalement privé de failles acti
 4. Activer le signalement privé de failles (Settings → Security → Private vulnerability reporting) : `SECURITY.md` y renvoie.
 5. Publier la première version (étape 3 ci-dessus), puis essayer `curl -fsSL https://dvp-th30.github.io/tallylight/install.sh | sh` sur une machine vierge.
 6. Renseigner la page du dépôt : `gh repo edit --homepage https://dvp-th30.github.io/tallylight/ --add-topic claude-code --add-topic coding-agents --add-topic rust --add-topic iroh --add-topic a2a`.
-7. Facultatif : réserver le nom sur crates.io (`cargo publish`, irréversible) ; les crates `tallylight-proto` et `tallylight-bindgen` ne se publient pas (`publish = false`).
+7. crates.io (fait le 2026-11-23 pour la 0.1.1 : `tallylight-core`, `tallylight-client`, `tallylight-ffi`, `tallylight`) : `cargo publish -p tallylight-core -p tallylight-client -p tallylight-ffi -p tallylight`, irréversible, après un essai avec `--dry-run` ; le compte crates.io doit avoir une adresse vérifiée ; les crates `tallylight-proto` et `tallylight-bindgen` ne se publient pas (`publish = false`).
 
 Version `v0.1.1` publiée le 2026-11-23 (Windows, Codex, paquet Swift ; AAR reconstruit avec iroh 1.4.2) : `install-test` vert sur les dix systèmes et sur Windows avec la commande publique (run 45081817913).
 

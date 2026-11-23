@@ -38,7 +38,7 @@ irm https://dvp-th30.github.io/tallylight/install.ps1 | iex
 The script downloads the latest release, checks its SHA-256 and puts `tallylight` in `~/.local/bin` (on Windows: in `%LOCALAPPDATA%\tallylight\bin`, which it adds to your user `PATH`). You can also grab a binary from the [releases page](https://github.com/DVP-Th30/tallylight/releases), or build it:
 
 ```sh
-cargo install --git https://github.com/DVP-Th30/tallylight tallylight
+cargo install tallylight
 ```
 
 ## Quick start
@@ -122,7 +122,7 @@ How it was checked: unit tests on payloads built from Codex's source, and runs o
 
 ## Put it in your own app
 
-The client is one Rust crate, `tallylight-client`:
+The client is one Rust crate, [`tallylight-client`](https://crates.io/crates/tallylight-client) (`cargo add tallylight-client`):
 
 ```rust
 use tallylight_client::{Screen, generate_key};
