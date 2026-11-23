@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Sessions carry `background_tasks`: how many background tasks were still running when the last turn ended (Claude Code). A session that is `completed` with a command still running in the background may resume by itself; screens can now say so. `tallylight watch` shows it. Kotlin and Swift: new `backgroundTasks` field on `Session`.
+
 ## 0.1.2
 
 - Outbound proxy: the daemon and the screens reach relays through the proxy named by `HTTP_PROXY` or `HTTPS_PROXY` (corporate networks, hosted agent sandboxes). Behind a proxy every connection is relayed. Checked with a local test proxy, not yet end to end in a hosted session.

@@ -41,6 +41,9 @@ pub struct Session {
     pub url: Option<String>,
     /// Modèle qui a répondu en dernier, en clair (« Opus 5.5 »), s'il est connu.
     pub model: Option<String>,
+    /// Tâches de fond encore en cours à la fin du dernier tour : l'agent peut reprendre seul
+    /// quand l'une d'elles se termine. Zéro pendant un tour.
+    pub background_tasks: u32,
     /// Dernier changement, en secondes depuis 1970.
     pub updated_at: u64,
 }
@@ -489,6 +492,7 @@ fn convert(sessions: Vec<tallylight_client::Session>) -> Vec<Session> {
             last_message: session.last_message,
             url: session.url,
             model: session.model.as_deref().map(tallylight_client::model_label),
+            background_tasks: session.background_tasks,
             updated_at: session.updated_at,
         })
         .collect()
@@ -655,6 +659,7 @@ mod tests {
             last_message: None,
             url: None,
             model: None,
+            background_tasks: 0,
             updated_at: 1,
         };
         screen

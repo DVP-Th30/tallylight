@@ -61,6 +61,7 @@ A snapshot is the full list of sessions on the machine, not a diff. A session th
 | `last_message` | string or null | First 600 characters of the agent's last message, set when a turn ends, cleared when the next one starts. |
 | `url` | string or null | Opens the session in the agent's own app, when there is one. |
 | `model` | string or null | Identifier of the model that answered last, for example `claude-opus-5-5`; for Codex, the session's model. |
+| `background_tasks` | integer | Since 0.1.3; absent means 0. Background tasks (a command started in the background, a subagent…) still running when the last turn ended: the agent may resume by itself when one finishes, or the task may run forever (a dev server). `completed` with a non-zero count means "done for now". 0 while a turn is in progress. Claude Code only. |
 | `updated_at` | integer | Unix seconds of the last state or tool change. |
 
 Unknown fields must be ignored: new ones may be added without a new protocol version.

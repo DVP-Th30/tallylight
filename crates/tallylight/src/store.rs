@@ -8,7 +8,7 @@ use std::{
 
 use tallylight_core::{
     Session, Snapshot, State,
-    claude::{self, Change, HookEvent, last_message},
+    claude::{self, Change, HookEvent, background_tasks, last_message},
     codex,
 };
 use tokio::sync::watch;
@@ -115,6 +115,9 @@ impl Store {
                     session.last_message = Some(message);
                 } else if event.hook_event_name == "UserPromptSubmit" {
                     session.last_message = None;
+                }
+                if let Some(count) = background_tasks(event) {
+                    session.background_tasks = count;
                 }
                 match update {
                     Change::Set {
@@ -239,6 +242,7 @@ fn blank(id: &str, agent: &str) -> Session {
         last_message: None,
         url: None,
         model: None,
+        background_tasks: 0,
         updated_at: now(),
     }
 }

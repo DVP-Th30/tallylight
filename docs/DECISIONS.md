@@ -178,8 +178,17 @@ Décision : `Relays::apply` appelle `proxy_from_env()` d'iroh (variables `HTTP_P
 
 Deux corrections venues du même essai : le journal du démon dit au bout de 20 s qu'aucun relais n'est joint (il restait muet), et les erreurs sont affichées par le binaire lui-même (renvoyées depuis `main`, elles traînaient une trace d'appels illisible dès que `RUST_BACKTRACE` est défini).
 
+## D20 — Tâches de fond : le tour reste « fini », un compteur voyage à part (2026-11-23)
+Constat : un agent qui lance une commande en arrière-plan puis termine son tour s'affichait `completed`, alors qu'il reprend seul à la fin de la commande. `Stop` de Claude Code porte `background_tasks` (et `session_crons`) ; observé le 2026-11-23 sur une session d'essai : une entrée `{"type":"shell","status":"running",…}`, puis `UserPromptSubmit` au réveil, puis un `Stop` à liste vide.
+
+Décision : la session garde l'état `completed` et gagne un champ `background_tasks`, le nombre d'entrées en `running` au dernier `Stop` de la session elle-même, remis à zéro à `UserPromptSubmit`. Champ ajouté sans nouvelle version du protocole (les champs inconnus sont ignorés).
+- Écarté : rester `working` tant qu'une tâche tourne. Claude Code ne dit pas si la tâche réveillera l'agent ou ne finit jamais (serveur de développement, surveillance) : la session resterait « au travail » indéfiniment alors que l'agent attend l'utilisateur.
+- Écarté : un nouvel état. Il change le vocabulaire (A2A) que chaque écran doit apprendre.
+- `session_crons` (réveils programmés) n'est pas compté : entre deux réveils la session est bien au repos.
+- Le nombre date du dernier `Stop` : une tâche qui se termine sans réveiller l'agent le laisserait faux jusqu'au tour suivant (non observé : la fin d'une commande de fond a réveillé l'agent).
+- Codex n'envoie rien de tel : toujours zéro.
+
 ## Questions ouvertes
-- Tour terminé avec une tâche de fond en cours : `Stop` de Claude Code porte `background_tasks` et `session_crons` (observé le 2026-11-23 sur une session d'essai : une entrée `shell` en `running`, puis `UserPromptSubmit` au réveil). Aujourd'hui ignorés, la session s'affiche `completed`. Rester `working` serait faux pour une tâche qui ne finit jamais (serveur de développement) ; piste : un champ facultatif comptant les tâches de fond. À arbitrer.
 - Codex : obtenir `failed` (voir D17, piste `PostModelRequest`) et savoir qu'un processus Codex est mort sans événement de fin.
 - Envoyer un message à une session Claude Code déjà ouverte (conditionne la voix) : Remote Control sans API, channels en aperçu, socket de boîte de réception au format non documenté. À valider par un essai.
 - Comportement de Claude Code quand un hook `PermissionRequest` dépasse son délai.
