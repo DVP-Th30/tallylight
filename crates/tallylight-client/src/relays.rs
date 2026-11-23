@@ -47,6 +47,9 @@ impl Relays {
     /// Applique ce choix à la construction d'un point réseau iroh (partie d'un préréglage
     /// comme `presets::N0`). Les relais publics laissent le préréglage intact.
     pub fn apply(&self, builder: Builder) -> Builder {
+        // Derrière un proxy sortant (réseau d'entreprise, bac à sable d'un agent en ligne), le relais
+        // n'est joignable que par lui : sans variable de proxy, rien ne change
+        let builder = builder.proxy_from_env();
         match &self.0 {
             Choice::N0 => builder,
             Choice::Own(urls) => builder.relay_mode(RelayMode::custom(urls.iter().cloned())),

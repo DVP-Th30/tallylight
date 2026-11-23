@@ -76,7 +76,16 @@ Environment:
   TALLYLIGHT_RELAY  relay used when --relay is not given";
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
+    // Affichage maison : renvoyer l'erreur depuis `main` ajoute une trace d'appels illisible dès
+    // que `RUST_BACKTRACE` est défini sur la machine
+    if let Err(error) = run().await {
+        eprintln!("Error: {error:#}");
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let Some((&command, rest)) = args.split_first() else {

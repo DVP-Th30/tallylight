@@ -163,6 +163,20 @@ Les liaisons Swift sortent du même crate `tallylight-ffi` que les liaisons Kotl
 Écarté : un `Package.swift` à la racine avec une cible binaire distante (`url` et empreinte), qui permettrait d'ajouter le dépôt par son adresse : il faut alors committer le fichier Swift généré et inscrire dans le manifeste l'empreinte d'une archive qui n'existe qu'après la publication, soit une version en deux temps. À faire quand une application iOS consommera vraiment le paquet. Écartés aussi : CocoaPods (dépôt central en lecture seule à partir de décembre 2026) ; un framework dynamique (à embarquer et signer, sans gain ici) ; la tranche Intel du simulateur par défaut (une compilation de plus pour des Mac qui disparaissent ; `IOS_SIM_TARGETS` l'ajoute).
 Vérifié et non vérifié : voir `docs/INFRA.md`, « Compiler pour iOS et macOS ». En bref, le 2026-11-22 : essai de bout en bout réussi sur macOS et dans le simulateur iOS ; aucune application iOS réelle ne l'a encore utilisé, et la question de l'autorisation « Réseau local » d'iOS reste à trancher sur un appareil.
 
+## D19 — Proxy sortant lu dans l'environnement ; sessions hébergées en ligne (2026-11-23)
+Essai du 2026-11-23 dans une session Claude Code hébergée par Anthropic (« sur le web »), tallylight 0.1.1 :
+- Par défaut, le proxy de l'environnement refuse notre site (403, hôte hors liste) : rien ne s'installe. Avec un accès réseau élargi, l'installation passe.
+- `tallylight install --no-service` puis `tallylight daemon` lancé à la main (pas de systemd) : les hooks écrits dans `~/.claude/settings.json` en cours de session sont pris en compte, la session apparaît dans `/sessions` avec son état et son outil.
+- Le démon ne rejoignait aucun relais : il ignorait le proxy et tentait de sortir en direct. `tallylight pair` échouait.
+
+Décision : `Relays::apply` appelle `proxy_from_env()` d'iroh (variables `HTTP_PROXY`, `http_proxy`, `HTTPS_PROXY`, `https_proxy`, dans cet ordre), pour le démon comme pour les écrans. Sans variable, rien ne change. Vérifié en local avec un proxy `CONNECT` d'essai : le démon rejoint un relais par le proxy et délivre une chaîne d'appairage.
+- Derrière un proxy, tout passe par un relais : pas de chemin direct en UDP.
+- `NO_PROXY` n'est pas lu par iroh.
+- iroh demande au proxy les relais avec un point final (`euc1-1.relay.n0.iroh.link.:443`) : une liste d'hôtes autorisés stricte peut ne pas le reconnaître. Non vérifié.
+- Non vérifié : le bout en bout dans une session hébergée avec cette version. L'installation disparaît avec l'environnement : pour un usage réel, elle va dans le script de démarrage de l'environnement.
+
+Deux corrections venues du même essai : le journal du démon dit au bout de 20 s qu'aucun relais n'est joint (il restait muet), et les erreurs sont affichées par le binaire lui-même (renvoyées depuis `main`, elles traînaient une trace d'appels illisible dès que `RUST_BACKTRACE` est défini).
+
 ## Questions ouvertes
 - Codex : obtenir `failed` (voir D17, piste `PostModelRequest`) et savoir qu'un processus Codex est mort sans événement de fin.
 - Envoyer un message à une session Claude Code déjà ouverte (conditionne la voix) : Remote Control sans API, channels en aperçu, socket de boîte de réception au format non documenté. À valider par un essai.
