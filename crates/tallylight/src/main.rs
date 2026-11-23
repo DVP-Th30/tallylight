@@ -18,8 +18,10 @@
 mod claude_local;
 mod daemon;
 mod devices;
+mod guests;
 mod hooks;
 mod install;
+mod invites;
 mod local;
 mod store;
 mod transcript;
@@ -54,13 +56,21 @@ Usage: tallylight <command> [options]
 Commands:
   install [--no-service] [--relay R]  add the hooks (Claude Code, and Codex when it is installed)
                                       and run the daemon as a service
+  install --ephemeral                 for a machine rebuilt for each use (hosted session, container):
+                                      no service, Claude Code starts the daemon with each session
+  start [--port N]                    start the daemon in the background unless it already runs
   uninstall                           remove the hooks and the service (data is kept)
   pair                                print a QR code and a one-time pairing string for a new screen
   watch [--relay R] [pairing]         follow this machine and every paired machine in the terminal
   devices                             list the paired screens
   unpair <id>                         remove a screen (start of its identity)
   name [name | --reset]               show or choose the machine name shown on screens
-  daemon [--port N] [--relay R]       run the daemon in the foreground
+  invite <name>                       let other machines (hosted sessions, containers) send their
+                                      sessions to this one: prints the invitation to give them
+  invites                             list the invitations
+  revoke <name>                       cancel an invitation and drop the machines that use it
+  daemon [--port N] [--relay R] [--forward I]
+                                      run the daemon in the foreground
   hooks [claude|codex] [--port N]     print the hooks, to add them by hand
   hook codex [--port N]               run by Codex: forward the event read on stdin to the daemon
   help                                show this help
@@ -72,8 +82,12 @@ Options:
   -h, --help     show this help
   -V, --version  show the version
 
+  --forward I    send this machine's sessions to the machine that printed invitation I
+                 (`tallylight invite`), which shows them on its own screens
+
 Environment:
-  TALLYLIGHT_RELAY  relay used when --relay is not given";
+  TALLYLIGHT_RELAY    relay used when --relay is not given
+  TALLYLIGHT_FORWARD  invitation used when --forward is not given";
 
 #[tokio::main]
 async fn main() {
@@ -107,7 +121,7 @@ async fn run() -> Result<()> {
             if options.background {
                 windows::detach_console(&daemon_log()?)?;
             }
-            daemon::run(options.port(), options.relays()?).await
+            daemon::run(options.port(), options.relays()?, options.forward()?).await
         }
         "watch" => {
             let options = Options::parse(rest, &["--relay"], 1)?;
@@ -116,9 +130,20 @@ async fn run() -> Result<()> {
         "pair" if rest.is_empty() => local::pair().await,
         "devices" if rest.is_empty() => local::devices().await,
         "unpair" if rest.len() == 1 => local::unpair(rest[0]).await,
+        "invite" if rest.len() == 1 => local::invite(rest[0]).await,
+        "invites" if rest.is_empty() => local::invites().await,
+        "revoke" if rest.len() == 1 => local::revoke(rest[0]).await,
         "install" => {
-            let options = Options::parse(rest, &["--no-service", "--relay"], 0)?;
-            install::install(!options.no_service, options.relay_choice()?)
+            let options = Options::parse(rest, &["--no-service", "--relay", "--ephemeral"], 0)?;
+            install::install(
+                !options.no_service,
+                options.relay_choice()?,
+                options.ephemeral,
+            )
+        }
+        "start" => {
+            let options = Options::parse(rest, &["--port"], 0)?;
+            local::start(options.port())
         }
         "uninstall" if rest.is_empty() => install::uninstall(),
         "name" => name(rest).await,
@@ -137,7 +162,10 @@ async fn run() -> Result<()> {
             }
         }
         // Commande connue, mais arguments en trop ou manquants
-        "pair" | "devices" | "uninstall" => bail!("`{command}` takes no argument\n{HINT}"),
+        "pair" | "devices" | "uninstall" | "invites" => {
+            bail!("`{command}` takes no argument\n{HINT}")
+        }
+        "invite" | "revoke" => bail!("`{command}` takes the name of one invitation\n{HINT}"),
         "unpair" => bail!("`unpair` takes the start of one screen identity\n{HINT}"),
         _ => bail!("unknown command: {command}\n{HINT}"),
     }
@@ -146,9 +174,9 @@ async fn run() -> Result<()> {
 /// Options de `daemon`. `--background` (Windows seulement) : option interne de la tâche planifiée
 /// écrite par `install`, qui détache le démon de sa console et journalise dans un fichier.
 #[cfg(not(windows))]
-const DAEMON_OPTIONS: &[&str] = &["--port", "--relay"];
+const DAEMON_OPTIONS: &[&str] = &["--port", "--relay", "--forward"];
 #[cfg(windows)]
-const DAEMON_OPTIONS: &[&str] = &["--port", "--relay", "--background"];
+const DAEMON_OPTIONS: &[&str] = &["--port", "--relay", "--forward", "--background"];
 
 /// Journal du démon lancé par la tâche planifiée de Windows.
 #[cfg(windows)]
@@ -161,7 +189,10 @@ pub fn daemon_log() -> Result<PathBuf> {
 struct Options<'a> {
     port: Option<u16>,
     relay: Option<&'a str>,
+    /// Invitation d'une machine d'accueil, à qui envoyer les sessions de cette machine.
+    forward: Option<&'a str>,
     no_service: bool,
+    ephemeral: bool,
     #[cfg_attr(not(windows), allow(dead_code))]
     background: bool,
     /// Arguments sans tiret (la chaîne d'appairage de `watch`).
@@ -185,7 +216,9 @@ impl<'a> Options<'a> {
             match arg {
                 "--port" => options.port = Some(value()?.parse().context("invalid port")?),
                 "--relay" => options.relay = Some(value()?),
+                "--forward" => options.forward = Some(value()?),
                 "--no-service" => options.no_service = true,
+                "--ephemeral" => options.ephemeral = true,
                 "--background" => options.background = true,
                 _ => bail!("option {arg} is not handled"),
             }
@@ -198,6 +231,18 @@ impl<'a> Options<'a> {
 
     fn port(&self) -> u16 {
         self.port.unwrap_or_else(local_port)
+    }
+
+    /// Machine d'accueil à qui envoyer les sessions : l'option, sinon `TALLYLIGHT_FORWARD`.
+    /// Une variable vide compte pour absente.
+    fn forward(&self) -> Result<Option<guests::Target>> {
+        let env = std::env::var(guests::FORWARD_ENV).ok();
+        let (text, source) = match (self.forward, env.as_deref()) {
+            (Some(text), _) => (text, "--forward"),
+            (None, Some(text)) if !text.trim().is_empty() => (text, guests::FORWARD_ENV),
+            _ => return Ok(None),
+        };
+        text.parse().map(Some).with_context(|| source.to_string())
     }
 
     /// Relais demandés explicitement, par l'option ou par l'environnement ; `None` sinon.

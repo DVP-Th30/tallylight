@@ -16,6 +16,19 @@ pub struct Hello {
     pub code: Option<String>,
 }
 
+/// Identifiant du protocole d'envoi : une machine invitée pousse ses instantanés à une machine
+/// d'accueil, qui les rediffuse à ses écrans (D21).
+pub const FORWARD_ALPN: &[u8] = b"tallylight/forward/1";
+
+/// Première ligne envoyée par une machine invitée : son nom et le secret de son invitation.
+/// La machine d'accueil répond par un [`Welcome`] ; l'invitée envoie ensuite ses
+/// [`Snapshot`](crate::Snapshot), un par ligne, à chaque changement.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Join {
+    pub name: String,
+    pub invite: String,
+}
+
 /// Réponse du cœur ; les instantanés suivent si `ok` est vrai.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Welcome {

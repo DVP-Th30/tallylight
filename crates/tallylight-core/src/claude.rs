@@ -31,6 +31,10 @@ pub struct HookEvent {
     /// Modèle de la session : Codex le donne dans chaque événement, Claude Code non.
     #[serde(default)]
     pub model: Option<String>,
+    /// Tâches de fond connues à la fin d'un tour (`Stop` de Claude Code) ; forme lue avec
+    /// tolérance, voir [`background_tasks`].
+    #[serde(default)]
+    pub background_tasks: Option<serde_json::Value>,
 }
 
 /// Effet d'un événement sur la session qui l'a émis.
@@ -85,6 +89,35 @@ pub fn change(event: &HookEvent) -> Change {
         "StopFailure" if event.agent_id.is_none() => idle(State::Failed),
         "SessionEnd" => Change::Ended,
         _ => Change::Ignored,
+    }
+}
+
+/// Nombre de tâches de fond encore en cours, quand l'événement le dit : à la fin d'un tour de la
+/// session elle-même (les tâches finies ou tuées ne comptent pas), et zéro au début du suivant.
+/// `None` : l'événement n'apprend rien là-dessus.
+///
+/// Claude Code ne dit pas si une tâche réveillera l'agent ou tourne sans fin (un serveur de
+/// développement) : c'est pourquoi le tour reste « fini » et que ce nombre voyage à part (D20).
+pub fn background_tasks(event: &HookEvent) -> Option<u32> {
+    match event.hook_event_name.as_str() {
+        "UserPromptSubmit" => Some(0),
+        "Stop" if event.agent_id.is_none() => {
+            let running = event
+                .background_tasks
+                .as_ref()
+                .and_then(|tasks| tasks.as_array())
+                .map(|tasks| {
+                    tasks
+                        .iter()
+                        .filter(|task| {
+                            task.get("status").and_then(|s| s.as_str()) == Some("running")
+                        })
+                        .count()
+                })
+                .unwrap_or(0);
+            Some(u32::try_from(running).unwrap_or(u32::MAX))
+        }
+        _ => None,
     }
 }
 
@@ -301,5 +334,40 @@ mod tests {
             "é".repeat(900)
         ));
         assert_eq!(last_message(&long).unwrap().chars().count(), 601);
+    }
+    #[test]
+    fn background_tasks_are_counted_when_a_turn_ends() {
+        // Corps observé le 2026-11-23 sur une vraie session (Claude Code, commande en arrière-plan)
+        let stop = event(
+            r#"{"session_id":"s","hook_event_name":"Stop","background_tasks":[
+                {"id":"a","type":"shell","status":"running","command":"sleep 15"},
+                {"id":"b","type":"shell","status":"completed"}],"session_crons":[]}"#,
+        );
+        assert_eq!(background_tasks(&stop), Some(1));
+        assert_eq!(
+            change(&stop),
+            Change::Set {
+                state: State::Completed,
+                tool: None,
+                detail: None
+            }
+        );
+        // Rien en cours, ou champ absent (anciennes versions, Codex) : zéro
+        let quiet = event(r#"{"session_id":"s","hook_event_name":"Stop","background_tasks":[]}"#);
+        assert_eq!(background_tasks(&quiet), Some(0));
+        let old = event(r#"{"session_id":"s","hook_event_name":"Stop"}"#);
+        assert_eq!(background_tasks(&old), Some(0));
+        // Forme inattendue : l'événement reste lisible
+        let odd = event(r#"{"session_id":"s","hook_event_name":"Stop","background_tasks":"?"}"#);
+        assert_eq!(background_tasks(&odd), Some(0));
+        // Le tour suivant remet à zéro ; les autres événements et les sous-agents n'apprennent rien
+        let prompt = event(r#"{"session_id":"s","hook_event_name":"UserPromptSubmit"}"#);
+        assert_eq!(background_tasks(&prompt), Some(0));
+        let tool = event(r#"{"session_id":"s","hook_event_name":"PreToolUse","tool_name":"Bash"}"#);
+        assert_eq!(background_tasks(&tool), None);
+        let sub = event(
+            r#"{"session_id":"s","hook_event_name":"Stop","agent_id":"a1","background_tasks":[{"status":"running"}]}"#,
+        );
+        assert_eq!(background_tasks(&sub), None);
     }
 }

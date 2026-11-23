@@ -29,9 +29,24 @@ const TASK: &str = "tallylight";
 
 /// `relay` : relais demandés par `--relay` ou `TALLYLIGHT_RELAY` ; sans demande, le service garde
 /// ceux qu'il avait (une mise à jour par `install` ne doit pas les perdre), sinon ceux de n0.
-pub fn install(with_service: bool, relay: Option<Relays>) -> Result<()> {
+///
+/// `ephemeral` : machine sans gestionnaire de services, recréée à chaque usage (session hébergée
+/// en ligne, conteneur). Pas de service : un hook de début de session lance le démon (D21).
+pub fn install(with_service: bool, relay: Option<Relays>, ephemeral: bool) -> Result<()> {
+    let with_service = with_service && !ephemeral;
     let settings = settings_path()?;
-    let changed = edit_settings(&settings, |value| hooks::add_claude(value, local_port()))?;
+    let exe = std::env::current_exe().context("could not find the tallylight binary")?;
+    let exe = exe.to_string_lossy().into_owned();
+    let changed = edit_settings(&settings, |value| {
+        let hooks = hooks::add_claude(value, local_port());
+        // Sans l'option, un hook de démarrage laissé par une installation précédente est retiré
+        let start = if ephemeral {
+            hooks::add_start(value, &exe, local_port())
+        } else {
+            hooks::remove_start(value, local_port())
+        };
+        hooks || start
+    })?;
     println!(
         "Claude Code hooks: {} ({})",
         if changed { "added" } else { "already in place" },
@@ -52,6 +67,14 @@ pub fn install(with_service: bool, relay: Option<Relays>) -> Result<()> {
         install_service(&daemon_args(&relays))?;
     } else if relay.is_some() {
         println!("relay: ignored without the service (--no-service)");
+    }
+    if ephemeral {
+        println!(
+            "Daemon: started by Claude Code when a session starts (no service). Set {} to the \
+             invitation printed by `tallylight invite` on the machine that should show these sessions.",
+            crate::guests::FORWARD_ENV
+        );
+        return Ok(());
     }
     println!("\nTo follow this machine from another screen: tallylight pair");
     Ok(())
@@ -276,7 +299,11 @@ fn scheduled_task_xml(user: &str, exe: &str, args: &[String]) -> String {
 
 pub fn uninstall() -> Result<()> {
     let settings = settings_path()?;
-    let changed = edit_settings(&settings, |value| hooks::remove_claude(value, local_port()))?;
+    let changed = edit_settings(&settings, |value| {
+        let hooks = hooks::remove_claude(value, local_port());
+        let start = hooks::remove_start(value, local_port());
+        hooks || start
+    })?;
     println!(
         "Claude Code hooks: {}",
         if changed { "removed" } else { "none to remove" }

@@ -251,9 +251,20 @@ fn render(snapshot: &Snapshot, now: u64) -> String {
             (Some(tool), None) => format!(" ({tool})"),
             _ => String::new(),
         };
+        // Tour fini mais travail de fond en cours : l'agent peut reprendre seul
+        let background = match session.background_tasks {
+            0 => String::new(),
+            1 => " · 1 background task".to_string(),
+            count => format!(" · {count} background tasks"),
+        };
+        // Session d'une machine invitée : son nom précède celui de la session
+        let name = match session.host.as_deref() {
+            Some(host) => format!("{host} › {}", session.label()),
+            None => session.label().to_string(),
+        };
         out.push_str(&format!(
-            "  {mark} {:<24} {label}{tool} · {}\n",
-            session.label(),
+            "  {mark} {:<24} {label}{tool}{background} · {}\n",
+            name,
             ago(now.saturating_sub(session.updated_at)),
         ));
     }
@@ -315,6 +326,8 @@ mod tests {
             last_message: None,
             url: None,
             model: None,
+            background_tasks: 0,
+            host: None,
             updated_at,
         }
     }

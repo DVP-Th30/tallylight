@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Guest machines: a machine rebuilt for each use (hosted session, container, CI job) sends its sessions to a machine that is always on, which shows them on its own screens with a new `host` field. `tallylight invite <name>`, `tallylight invites`, `tallylight revoke <name>` on the receiving machine; `TALLYLIGHT_FORWARD` or `daemon --forward` on the guest. New ALPN `tallylight/forward/1`.
+- `tallylight install --ephemeral` for machines without a service manager: a Claude Code `SessionStart` hook runs the new `tallylight start`, which starts the daemon unless it already runs.
+- In a hosted Claude Code session, sessions get the `url` that opens them on claude.ai.
+- Kotlin and Swift: new `host` field on `Session`.
+- Local HTTP: `GET /invites`, `POST /invites/{name}`, `POST /invites/{name}/remove`.
+
+- Sessions carry `background_tasks`: how many background tasks were still running when the last turn ended (Claude Code). A session that is `completed` with a command still running in the background may resume by itself; screens can now say so. `tallylight watch` shows it. Kotlin and Swift: new `backgroundTasks` field on `Session`.
+
 ## 0.1.2
 
 - Outbound proxy: the daemon and the screens reach relays through the proxy named by `HTTP_PROXY` or `HTTPS_PROXY` (corporate networks, hosted agent sandboxes). Behind a proxy every connection is relayed. Checked with a local test proxy, not yet end to end in a hosted session.

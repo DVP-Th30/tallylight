@@ -8,7 +8,7 @@ use std::{
 
 use tallylight_core::{
     Session, Snapshot, State,
-    claude::{self, Change, HookEvent, last_message},
+    claude::{self, Change, HookEvent, background_tasks, last_message},
     codex,
 };
 use tokio::sync::watch;
@@ -36,6 +36,24 @@ pub struct Store {
     path: Option<PathBuf>,
     inner: Mutex<Inner>,
     snapshot: watch::Sender<Snapshot>,
+    /// Lien donné aux sessions de Claude Code qui n'en ont pas : celui de la session hébergée
+    /// en ligne dans laquelle tourne le démon, voir [`hosted_session_url`].
+    fallback_url: Option<String>,
+}
+
+/// Lien vers la session hébergée (« Claude Code on the web ») dont cet environnement fait partie,
+/// tiré de ses variables : `CLAUDE_CODE_REMOTE_SESSION_ID` vaut `cse_…` et le lien remplace ce
+/// préfixe par `session_` (https://code.claude.com/docs/en/cloud-environments, lu le 2026-11-23).
+pub fn hosted_session_url(remote: Option<&str>, session: Option<&str>) -> Option<String> {
+    if remote != Some("true") {
+        return None;
+    }
+    let id = session?.strip_prefix("cse_")?;
+    let plain = !id.is_empty()
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
+    plain.then(|| format!("https://claude.ai/code/session_{id}"))
 }
 
 #[derive(Default)]
@@ -43,7 +61,22 @@ struct Inner {
     sessions: BTreeMap<String, Session>,
     /// Date du dernier événement reçu de chaque session, qu'il ait changé l'état ou non.
     last_event: HashMap<String, u64>,
+    /// Machines invitées connectées en ce moment, par numéro de connexion.
+    guests: BTreeMap<u64, Guest>,
+    next_guest: u64,
 }
+
+/// Une machine invitée connectée : ses sessions s'ajoutent à celles de la machine (D21).
+struct Guest {
+    /// Invitation qui l'a fait entrer.
+    invite: String,
+    /// Nom sous lequel ses sessions sont diffusées, imposé par la machine d'accueil.
+    host: String,
+    sessions: Vec<Session>,
+}
+
+/// Machines invitées connectées en même temps par invitation.
+const GUESTS_PER_INVITE: usize = 20;
 
 impl Store {
     /// `path` : fichier des sessions conservées ; elles sont relues au démarrage.
@@ -66,8 +99,16 @@ impl Store {
             inner: Mutex::new(Inner {
                 sessions,
                 last_event: HashMap::new(),
+                guests: BTreeMap::new(),
+                next_guest: 0,
             }),
             snapshot,
+            fallback_url: hosted_session_url(
+                std::env::var("CLAUDE_CODE_REMOTE").ok().as_deref(),
+                std::env::var("CLAUDE_CODE_REMOTE_SESSION_ID")
+                    .ok()
+                    .as_deref(),
+            ),
         }
     }
 
@@ -116,6 +157,12 @@ impl Store {
                 } else if event.hook_event_name == "UserPromptSubmit" {
                     session.last_message = None;
                 }
+                if session.url.is_none() && agent == CLAUDE_CODE {
+                    session.url = self.fallback_url.clone();
+                }
+                if let Some(count) = background_tasks(event) {
+                    session.background_tasks = count;
+                }
                 match update {
                     Change::Set {
                         state,
@@ -151,6 +198,7 @@ impl Store {
         let Inner {
             sessions,
             last_event,
+            ..
         } = &mut *inner;
 
         sessions.retain(|id, session| match local.get(id) {
@@ -170,7 +218,7 @@ impl Store {
                 session
             });
             session.title = card.title.clone();
-            session.url = card.url.clone();
+            session.url = card.url.clone().or_else(|| self.fallback_url.clone());
             if card.model.is_some() {
                 session.model = card.model.clone();
             }
@@ -189,7 +237,7 @@ impl Store {
         self.publish(&inner, &before);
     }
 
-    /// Prévient les écrans et enregistre, seulement si les sessions ont changé.
+    /// Prévient les écrans et enregistre, seulement si les sessions de la machine ont changé.
     fn publish(&self, inner: &Inner, before: &BTreeMap<String, Session>) {
         if &inner.sessions == before {
             return;
@@ -200,10 +248,104 @@ impl Store {
         {
             let _ = write_private(path, &bytes);
         }
-        self.snapshot.send_replace(Snapshot {
-            machine: self.machine.lock().unwrap().clone(),
-            sessions,
+        self.broadcast(inner);
+    }
+
+    /// Diffuse les sessions de la machine suivies de celles de ses invitées, si l'ensemble a changé.
+    /// Les sessions invitées ne sont pas enregistrées : elles reviennent avec leur machine.
+    fn broadcast(&self, inner: &Inner) {
+        let mut sessions: Vec<Session> = inner.sessions.values().cloned().collect();
+        let mut seen: std::collections::HashSet<&str> =
+            inner.sessions.keys().map(String::as_str).collect();
+        for guest in inner.guests.values() {
+            for session in &guest.sessions {
+                // Un identifiant ne paraît qu'une fois : celui de la machine l'emporte
+                if seen.insert(&session.id) {
+                    sessions.push(session.clone());
+                }
+            }
+        }
+        self.snapshot.send_if_modified(|snapshot| {
+            let changed = snapshot.sessions != sessions;
+            if changed {
+                snapshot.sessions = sessions;
+            }
+            changed
         });
+    }
+
+    /// Fait entrer une machine invitée par l'invitation `invite`. Retourne son numéro et le nom
+    /// sous lequel ses sessions seront diffusées : celui de l'invitation, numéroté s'il est déjà
+    /// pris (« cloud », « cloud 2 »). `None` : trop d'invitées à la fois pour cette invitation.
+    pub fn guest_join(&self, invite: &str) -> Option<(u64, String)> {
+        let mut inner = self.inner.lock().unwrap();
+        let taken: Vec<&str> = inner
+            .guests
+            .values()
+            .filter(|guest| guest.invite == invite)
+            .map(|guest| guest.host.as_str())
+            .collect();
+        if taken.len() >= GUESTS_PER_INVITE {
+            return None;
+        }
+        let host = (1..)
+            .map(|n| match n {
+                1 => invite.to_string(),
+                n => format!("{invite} {n}"),
+            })
+            .find(|name| !taken.contains(&name.as_str()))?;
+        let id = inner.next_guest;
+        inner.next_guest += 1;
+        inner.guests.insert(
+            id,
+            Guest {
+                invite: invite.to_string(),
+                host: host.clone(),
+                sessions: Vec::new(),
+            },
+        );
+        Some((id, host))
+    }
+
+    /// Remplace les sessions d'une invitée ; `false` si elle n'est plus admise (invitation révoquée).
+    pub fn guest_update(&self, id: u64, sessions: Vec<Session>) -> bool {
+        let mut inner = self.inner.lock().unwrap();
+        let Some(guest) = inner.guests.get_mut(&id) else {
+            return false;
+        };
+        guest.sessions = sessions;
+        self.broadcast(&inner);
+        true
+    }
+
+    /// Une invitée est-elle encore admise ?
+    pub fn guest_admitted(&self, id: u64) -> bool {
+        self.inner.lock().unwrap().guests.contains_key(&id)
+    }
+
+    /// L'invitée est partie : ses sessions disparaissent des écrans.
+    pub fn guest_leave(&self, id: u64) {
+        let mut inner = self.inner.lock().unwrap();
+        if inner.guests.remove(&id).is_some() {
+            self.broadcast(&inner);
+        }
+    }
+
+    /// Invitation révoquée : ses invitées sortent ; leur connexion le constate et se ferme.
+    pub fn guests_revoke(&self, invite: &str) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.guests.retain(|_, guest| guest.invite != invite);
+        self.broadcast(&inner);
+    }
+
+    /// Nombre d'invitées connectées par l'invitation `invite`.
+    pub fn guests_count(&self, invite: &str) -> usize {
+        let inner = self.inner.lock().unwrap();
+        inner
+            .guests
+            .values()
+            .filter(|guest| guest.invite == invite)
+            .count()
     }
 
     /// Change le nom de la machine et prévient les écrans.
@@ -239,6 +381,8 @@ fn blank(id: &str, agent: &str) -> Session {
         last_message: None,
         url: None,
         model: None,
+        background_tasks: 0,
+        host: None,
         updated_at: now(),
     }
 }
@@ -459,5 +603,18 @@ mod tests {
             Some(State::InputRequired)
         );
         let _ = std::fs::remove_file(&path);
+    }
+    #[test]
+    fn a_hosted_session_gets_its_link_from_the_environment() {
+        assert_eq!(
+            hosted_session_url(Some("true"), Some("cse_01AbC")).as_deref(),
+            Some("https://claude.ai/code/session_01AbC")
+        );
+        // Hors session hébergée, ou identifiant inattendu : pas de lien inventé
+        assert_eq!(hosted_session_url(None, Some("cse_01AbC")), None);
+        assert_eq!(hosted_session_url(Some("true"), None), None);
+        assert_eq!(hosted_session_url(Some("true"), Some("01AbC")), None);
+        assert_eq!(hosted_session_url(Some("true"), Some("cse_")), None);
+        assert_eq!(hosted_session_url(Some("true"), Some("cse_a/b?c")), None);
     }
 }

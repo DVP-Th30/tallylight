@@ -68,6 +68,15 @@ pub struct Session {
     /// Identifiant du dernier modèle qui a répondu (« claude-opus-5-5 ») ; voir [`model_label`].
     #[serde(default)]
     pub model: Option<String>,
+    /// Tâches de fond encore en cours à la fin du dernier tour (commande lancée en arrière-plan,
+    /// sous-agent…) : l'agent peut reprendre seul quand l'une d'elles se termine. Zéro pendant un tour.
+    #[serde(default)]
+    pub background_tasks: u32,
+    /// Machine où tourne réellement la session, quand ce n'est pas celle de l'instantané : une
+    /// machine invitée (session hébergée en ligne, conteneur) dont une machine d'accueil rediffuse
+    /// l'état. `None` pour les sessions de la machine elle-même.
+    #[serde(default)]
+    pub host: Option<String>,
     /// Dernier changement, en secondes depuis 1970.
     pub updated_at: u64,
 }
@@ -185,6 +194,8 @@ mod tests {
             last_message: None,
             url: None,
             model: None,
+            background_tasks: 0,
+            host: None,
             updated_at: 0,
         };
         assert_eq!(session.project(), "tallylight");

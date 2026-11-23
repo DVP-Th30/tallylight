@@ -22,7 +22,7 @@ use tallylight_client::Relays;
 use tallylight_core::{
     Snapshot,
     claude::HookEvent,
-    protocol::{ALPN, Hello, Welcome},
+    protocol::{ALPN, FORWARD_ALPN, Hello, Welcome},
 };
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
@@ -33,14 +33,18 @@ use tokio::{
 use crate::{
     claude_local, data_dir,
     devices::{Admission, Device, Devices},
-    identity, machine_name, now,
+    guests::{self, Target},
+    identity,
+    invites::Invites,
+    machine_name, now,
     store::Store,
     write_private,
 };
 
 struct App {
-    store: Store,
+    store: Arc<Store>,
     devices: Mutex<Devices>,
+    invites: Mutex<Invites>,
     /// Adresse de la machine pour les écrans ; vide tant que le réseau n'a pas été joint
     ticket: watch::Receiver<Option<String>>,
 }
@@ -54,7 +58,7 @@ const ONLINE_PATIENCE: Duration = Duration::from_secs(20);
 /// Variables lues par iroh pour trouver un proxy sortant.
 const PROXY_VARIABLES: [&str; 4] = ["HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"];
 
-pub async fn run(port: u16, relays: Relays) -> Result<()> {
+pub async fn run(port: u16, relays: Relays, forward: Option<Target>) -> Result<()> {
     // Le port local d'abord : suivre les sessions de la machine ne dépend pas du réseau.
     // Les hooks et les commandes locales n'arrivent que de la machine elle-même
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port))
@@ -79,13 +83,17 @@ pub async fn run(port: u16, relays: Relays) -> Result<()> {
     let endpoint = relays
         .apply(Endpoint::builder(presets::N0))
         .secret_key(identity("key")?)
-        .alpns(vec![ALPN.to_vec()])
+        .alpns(vec![ALPN.to_vec(), FORWARD_ALPN.to_vec()])
         .bind()
         .await?;
     let (ticket_ready, ticket) = watch::channel(None);
     let app = Arc::new(App {
-        store: Store::new(machine_name(), Some(data_dir()?.join("sessions.json"))),
+        store: Arc::new(Store::new(
+            machine_name(),
+            Some(data_dir()?.join("sessions.json")),
+        )),
         devices: Mutex::new(Devices::load(data_dir()?.join("devices.json"))),
+        invites: Mutex::new(Invites::load(data_dir()?.join("invites.json"))),
         ticket,
     });
 
@@ -126,6 +134,9 @@ pub async fn run(port: u16, relays: Relays) -> Result<()> {
         .route("/devices", get(devices))
         .route("/devices/{prefix}/remove", post(remove_device))
         .route("/name/reload", post(reload_name))
+        .route("/invites", get(invites))
+        .route("/invites/{name}", post(invite))
+        .route("/invites/{name}/remove", post(revoke))
         .with_state(app.clone());
 
     let screens = {
@@ -139,6 +150,19 @@ pub async fn run(port: u16, relays: Relays) -> Result<()> {
                         return;
                     };
                     let peer = connection.remote_id().fmt_short();
+                    // Une machine invitée pousse ses sessions ; un écran les lit
+                    if connection.alpn() == FORWARD_ALPN {
+                        let check = |secret: &str| {
+                            let invites = app.invites.lock().unwrap();
+                            invites.check(secret).map(str::to_string)
+                        };
+                        if let Err(error) =
+                            guests::serve_guest(&connection, &app.store, check).await
+                        {
+                            println!("guest machine {peer}: {error:#}");
+                        }
+                        return;
+                    }
                     match serve_screen(&connection, &app).await {
                         Ok(()) => println!("screen disconnected: {peer}"),
                         Err(error) => println!("screen {peer}: {error:#}"),
@@ -162,8 +186,21 @@ pub async fn run(port: u16, relays: Relays) -> Result<()> {
         }
     };
 
+    // Machine invitée : ses sessions partent aussi vers la machine d'accueil
+    let forwarding = {
+        let endpoint = endpoint.clone();
+        let store = app.store.clone();
+        async move {
+            match forward {
+                Some(target) => guests::forward(endpoint, store, target).await,
+                None => std::future::pending::<()>().await,
+            }
+        }
+    };
+
     tokio::select! {
         result = axum::serve(listener, router) => result?,
+        _ = forwarding => {}
         _ = reconcile => {}
         _ = screens => {}
         _ = network => {}
@@ -228,6 +265,46 @@ async fn pair(State(app): State<Arc<App>>) -> Json<Value> {
 async fn ticket(mut ready: watch::Receiver<Option<String>>, patience: Duration) -> Option<String> {
     let known = tokio::time::timeout(patience, ready.wait_for(Option::is_some)).await;
     known.ok()?.ok()?.clone()
+}
+
+/// Crée une invitation et rend la chaîne à donner à la machine invitée : le ticket et le secret.
+async fn invite(State(app): State<Arc<App>>, Path(name): Path<String>) -> Json<Value> {
+    let Some(ticket) = ticket(app.ticket.clone(), TICKET_PATIENCE).await else {
+        return Json(json!({
+            "error": "the daemon is not online yet (machine offline, or relay unreachable?): try again once the connection is back"
+        }));
+    };
+    match app.invites.lock().unwrap().create(&name, now()) {
+        Ok(secret) => Json(json!({ "invitation": format!("{ticket}#{secret}") })),
+        Err(error) => Json(json!({ "error": error.to_string() })),
+    }
+}
+
+/// Les invitations, sans leur secret, avec le nombre de machines connectées par chacune.
+async fn invites(State(app): State<Arc<App>>) -> Json<Value> {
+    let invites = app.invites.lock().unwrap();
+    let list: Vec<Value> = invites
+        .list()
+        .iter()
+        .map(|invite| {
+            json!({
+                "name": invite.name,
+                "created_at": invite.created_at,
+                "connected": app.store.guests_count(&invite.name),
+            })
+        })
+        .collect();
+    Json(json!(list))
+}
+
+async fn revoke(State(app): State<Arc<App>>, Path(name): Path<String>) -> Json<Value> {
+    match app.invites.lock().unwrap().remove(&name) {
+        Ok(removed) => {
+            app.store.guests_revoke(&name);
+            Json(json!({ "removed": removed }))
+        }
+        Err(error) => Json(json!({ "error": error.to_string() })),
+    }
 }
 
 async fn devices(State(app): State<Arc<App>>) -> Json<Vec<Device>> {

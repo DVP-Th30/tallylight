@@ -57,6 +57,8 @@ Limites connues :
 3. Le cœur pousse l'état aux appareils appairés par une connexion chiffrée de bout en bout (iroh).
 4. L'écran affiche. Plus tard : il renvoie une réponse (autorisation, message).
 
+Machine éphémère (session hébergée en ligne, conteneur) : elle n'est appairée à aucun écran et pousse ses instantanés à une machine d'accueil, qui les rediffuse avec le champ `host` (décision D21, `crates/tallylight/src/guests.rs` et `invites.rs`).
+
 Deux entrées produisent le même format : les hooks (aucune coopération de l'agent requise) et une entrée directe pour les harnais qui veulent publier leur état eux-mêmes.
 
 ## Périmètre de la première version

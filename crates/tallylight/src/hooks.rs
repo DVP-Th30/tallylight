@@ -124,6 +124,39 @@ pub fn remove_codex(settings: &mut Value, port: u16) -> bool {
     remove(settings, |group| is_codex(group, port))
 }
 
+/// Fin de la commande du hook de démarrage : c'est elle qui le fait reconnaître.
+fn start_suffix(port: u16) -> String {
+    format!(" start --port {port}")
+}
+
+fn start_command(exe: &str, port: u16) -> String {
+    format!("{}{}", shell_quote(exe), start_suffix(port))
+}
+
+fn is_start(group: &Value, port: u16) -> bool {
+    let suffix = start_suffix(port);
+    handlers(group).any(|hook| {
+        hook["command"]
+            .as_str()
+            .is_some_and(|command| command.ends_with(&suffix))
+    })
+}
+
+/// Ajoute aux réglages de Claude Code le hook qui lance le démon au début de chaque session :
+/// pour les machines sans gestionnaire de services (session hébergée en ligne, conteneur), où
+/// rien d'autre ne le relancerait. `tallylight start` ne fait rien si le démon tourne déjà.
+pub fn add_start(settings: &mut Value, exe: &str, port: u16) -> bool {
+    let command = start_command(exe, port);
+    let group = json!({ "hooks": [{ "type": "command", "command": command, "timeout": 10 }] });
+    let ours = |group: &Value| is_start(group, port);
+    let current = |group: &Value| handlers(group).any(|hook| hook["command"] == command.as_str());
+    add(settings, &["SessionStart"], &group, ours, current)
+}
+
+pub fn remove_start(settings: &mut Value, port: u16) -> bool {
+    remove(settings, |group| is_start(group, port))
+}
+
 /// Les hooks d'un groupe.
 fn handlers(group: &Value) -> impl Iterator<Item = &Value> {
     group["hooks"].as_array().into_iter().flatten()
@@ -278,5 +311,35 @@ mod tests {
         );
         assert_eq!(shell_quote("/tmp/it's/t"), r"'/tmp/it'\''s/t'");
         assert_eq!(shell_quote("/tmp/$HOME/t"), "'/tmp/$HOME/t'");
+    }
+    #[test]
+    fn the_start_hook_is_added_once_and_removed_alone() {
+        let mut settings = json!({});
+        add_claude(&mut settings, 4242);
+        assert!(add_start(
+            &mut settings,
+            "/root/.local/bin/tallylight",
+            4242
+        ));
+        assert!(!add_start(
+            &mut settings,
+            "/root/.local/bin/tallylight",
+            4242
+        ));
+        assert_eq!(
+            settings["hooks"]["SessionStart"][0]["hooks"][0]["command"],
+            "/root/.local/bin/tallylight start --port 4242"
+        );
+        // Binaire déplacé : le hook est remplacé, pas doublé
+        assert!(add_start(&mut settings, "/opt/tallylight", 4242));
+        assert_eq!(
+            settings["hooks"]["SessionStart"].as_array().unwrap().len(),
+            1
+        );
+        // Retiré seul : les hooks `http` restent
+        assert!(remove_start(&mut settings, 4242));
+        assert!(settings["hooks"].get("SessionStart").is_none());
+        assert!(settings["hooks"]["Stop"].is_array());
+        assert!(!remove_start(&mut settings, 4242));
     }
 }

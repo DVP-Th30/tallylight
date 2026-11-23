@@ -183,12 +183,39 @@ tally.pair(pairing: scannedQr)
 
 Building with an LLM? Point it at [llms.txt](https://dvp-th30.github.io/tallylight/llms.txt): the protocol, the states, the code and the limits in one file.
 
+## Hosted sessions and other short-lived machines
+
+A session that runs in a hosted sandbox (Claude Code on the web), a container or a CI job lives on a machine that is rebuilt each time: pairing it with your phone would have to be redone for every session. Instead, such a machine sends its sessions to one of your machines that is always on, and they show up on the screens already paired with it.
+
+On the machine that is always on:
+
+```sh
+tallylight invite cloud
+```
+
+It prints an invitation. In the short-lived environment, set it as `TALLYLIGHT_FORWARD` and install with `--ephemeral`, which adds a hook that starts the daemon with each Claude Code session (there is no service manager to do it). For Claude Code on the web, that is one environment variable, `*.iroh.link` in the allowed domains, and this setup script:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/DVP-Th30/tallylight/main/site/install.sh | sh
+~/.local/bin/tallylight install --ephemeral
+```
+
+The sessions appear under the invitation's name (`cloud`, then `cloud 2` when several run at once) and disappear when the environment stops. `tallylight invites` lists the invitations, `tallylight revoke cloud` cancels one.
+
+What to know:
+
+- The invitation is a secret that the agent running in that environment can read. It only lets its holder make sessions appear on your screens, and reads nothing back. Revoke it if it leaks.
+- The receiving machine must be on and online.
+- Behind the sandbox's proxy, everything goes through a relay.
+- New in 0.2.0. Checked between two daemons on one machine, with a real Claude Code session starting the daemon through the hook; a real hosted session reached a phone with 0.1.2 by pairing by hand, the invitation path has not been tried there yet.
+
 ## Privacy and security
 
 - **Pairing.** Each screen has its own key. To get on a machine's allow-list, it presents a random one-time code (valid five minutes, single use) shown by `tallylight pair`. After that the machine recognises the key. `tallylight unpair` removes a screen.
 - **Transport.** QUIC, end-to-end encrypted between the machine and the screen. A relay is used only when no direct path is found, and it only sees ciphertext.
 - **What leaves the machine.** Session state, working directory and title, the tool name, a one-line detail (at most 140 characters: a command's description, a file name, the question asked), the first 600 characters of the agent's last message, and the model name. Never file contents, never command output. A command without a description is reduced to the program's name.
 - **Relays.** By default tallylight uses the public relays run by iroh's maintainers, which are meant for development. Use your own with `--relay https://relay.example.com` or `TALLYLIGHT_RELAY`. See [docs/RELAY.md](docs/RELAY.md).
+- **Invitations.** `tallylight invite` creates a long-lived secret that lets other machines add sessions to this one's snapshot. A guest machine is not trusted: its texts are shortened, its links must be `https://`, and its sessions carry a `host` name it cannot choose. See [Hosted sessions](#hosted-sessions-and-other-short-lived-machines).
 - **Local port.** The daemon listens on `127.0.0.1:47700` and trusts local processes. Don't run it on a machine you share with people you don't trust.
 
 Found a security problem? See [SECURITY.md](SECURITY.md).
