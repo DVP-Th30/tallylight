@@ -173,7 +173,8 @@ Décision : `Relays::apply` appelle `proxy_from_env()` d'iroh (variables `HTTP_P
 - Derrière un proxy, tout passe par un relais : pas de chemin direct en UDP.
 - `NO_PROXY` n'est pas lu par iroh.
 - iroh demande au proxy les relais avec un point final (`euc1-1.relay.n0.iroh.link.:443`) : une liste d'hôtes autorisés stricte peut ne pas le reconnaître. Non vérifié.
-- Non vérifié : le bout en bout dans une session hébergée avec cette version. L'installation disparaît avec l'environnement : pour un usage réel, elle va dans le script de démarrage de l'environnement.
+- Bout en bout vérifié le 2026-11-23 avec la 0.1.2 dans une session hébergée (accès réseau complet) : journal `proxy: taken from the environment…` puis `online through https://use1-1.relay.n0.iroh.link./`, `tallylight pair` réussi, la machine `vm` et sa session vues sur un téléphone Android, lien « relais ». La machine s'appelle `vm` et la session `user` (dossier `/home/user`, pas de titre) : rien ne dit de quelle session il s'agit, `tallylight name` à prévoir dans le script de démarrage.
+- L'installation disparaît avec l'environnement : pour un usage réel, elle va dans le script de démarrage de l'environnement.
 
 Deux corrections venues du même essai : le journal du démon dit au bout de 20 s qu'aucun relais n'est joint (il restait muet), et les erreurs sont affichées par le binaire lui-même (renvoyées depuis `main`, elles traînaient une trace d'appels illisible dès que `RUST_BACKTRACE` est défini).
 
