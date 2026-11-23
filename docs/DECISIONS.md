@@ -178,6 +178,7 @@ Décision : `Relays::apply` appelle `proxy_from_env()` d'iroh (variables `HTTP_P
 Deux corrections venues du même essai : le journal du démon dit au bout de 20 s qu'aucun relais n'est joint (il restait muet), et les erreurs sont affichées par le binaire lui-même (renvoyées depuis `main`, elles traînaient une trace d'appels illisible dès que `RUST_BACKTRACE` est défini).
 
 ## Questions ouvertes
+- Tour terminé avec une tâche de fond en cours : `Stop` de Claude Code porte `background_tasks` et `session_crons` (observé le 2026-11-23 sur une session d'essai : une entrée `shell` en `running`, puis `UserPromptSubmit` au réveil). Aujourd'hui ignorés, la session s'affiche `completed`. Rester `working` serait faux pour une tâche qui ne finit jamais (serveur de développement) ; piste : un champ facultatif comptant les tâches de fond. À arbitrer.
 - Codex : obtenir `failed` (voir D17, piste `PostModelRequest`) et savoir qu'un processus Codex est mort sans événement de fin.
 - Envoyer un message à une session Claude Code déjà ouverte (conditionne la voix) : Remote Control sans API, channels en aperçu, socket de boîte de réception au format non documenté. À valider par un essai.
 - Comportement de Claude Code quand un hook `PermissionRequest` dépasse son délai.

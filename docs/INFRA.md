@@ -51,6 +51,8 @@ Fait le 2026-11-22 : dépôt public, Pages et signalement privé de failles acti
 6. Renseigner la page du dépôt : `gh repo edit --homepage https://dvp-th30.github.io/tallylight/ --add-topic claude-code --add-topic coding-agents --add-topic rust --add-topic iroh --add-topic a2a`.
 7. crates.io (fait le 2026-11-23 pour la 0.1.1 : `tallylight-core`, `tallylight-client`, `tallylight-ffi`, `tallylight`) : `cargo publish -p tallylight-core -p tallylight-client -p tallylight-ffi -p tallylight`, irréversible, après un essai avec `--dry-run` ; le compte crates.io doit avoir une adresse vérifiée ; les crates `tallylight-proto` et `tallylight-bindgen` ne se publient pas (`publish = false`).
 
+Version `v0.1.2` publiée le 2026-11-23 (proxy sortant, D19) : `install-test` vert sur les mêmes systèmes, Windows compris (run 45260774708) ; crates.io en 0.1.2 le même jour.
+
 Version `v0.1.1` publiée le 2026-11-23 (Windows, Codex, paquet Swift ; AAR reconstruit avec iroh 1.4.2) : `install-test` vert sur les dix systèmes et sur Windows avec la commande publique (run 45081817913).
 
 Essai sur machines vierges : `gh workflow run install-test` installe la dernière version par la commande du site sur dix systèmes neufs (Ubuntu Intel et ARM, macOS Apple Silicon et Intel, conteneurs Debian 12, Ubuntu 20.04, Alpine Intel et ARM, Fedora, Arch) puis déroule `.github/scripts/smoke.sh` : hooks, démon, un événement, appairage (et, à partir de la version qui connaît Codex, ses hooks, un événement relayé par `tallylight hook codex` et le retrait). Avec `-f source=release-assets`, il prend les fichiers de la version au lieu du site (seul moyen tant que le dépôt est privé).
