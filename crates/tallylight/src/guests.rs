@@ -156,7 +156,8 @@ pub async fn serve_guest(
         .context("the machine did not introduce itself")?;
     let join: Join = serde_json::from_slice(&join).context("unreadable introduction")?;
 
-    let admitted = check(&join.invite).and_then(|invite| store.guest_join(&invite));
+    let machine = connection.remote_id().to_string();
+    let admitted = check(&join.invite).and_then(|invite| store.guest_join(&invite, &machine));
     let mut line = serde_json::to_vec(&Welcome {
         ok: admitted.is_some(),
     })?;
@@ -171,8 +172,14 @@ pub async fn serve_guest(
     println!("guest machine joined: {host}");
 
     let result = receive(&mut reader, connection, store, id, &host).await;
-    store.guest_leave(id);
-    println!("guest machine left: {host}");
+    match store.guest_leave(id, crate::now()) {
+        Some(0) => println!("guest machine left: {host}"),
+        Some(kept) => println!(
+            "guest machine left: {host} ({kept} session(s) stay on screens for a day, as last known)"
+        ),
+        // Place déjà reprise ou invitation révoquée : l'erreur de `result` le dit
+        None => {}
+    }
     result
 }
 
@@ -184,6 +191,7 @@ async fn receive(
     host: &str,
 ) -> Result<()> {
     let mut check = tokio::time::interval(Duration::from_secs(5));
+    let mut count = None;
     loop {
         tokio::select! {
             line = read_line(reader) => {
@@ -196,9 +204,13 @@ async fn receive(
                     .into_iter()
                     .take(SESSIONS_MAX)
                     .map(|session| trusted(session, host))
-                    .collect();
+                    .collect::<Vec<_>>();
+                if count != Some(sessions.len()) {
+                    count = Some(sessions.len());
+                    println!("guest machine {host}: {} session(s)", sessions.len());
+                }
                 if !store.guest_update(id, sessions) {
-                    bail!("invitation revoked");
+                    bail!("no longer admitted (invitation revoked, or the machine reconnected)");
                 }
                 tokio::time::sleep(PACE).await;
             }
@@ -206,7 +218,7 @@ async fn receive(
             // Une invitation révoquée ferme la connexion même si l'invitée n'envoie plus rien
             _ = check.tick() => {
                 if !store.guest_admitted(id) {
-                    bail!("invitation revoked");
+                    bail!("no longer admitted (invitation revoked, or the machine reconnected)");
                 }
             }
         }
@@ -333,11 +345,11 @@ mod tests {
     }
 
     #[test]
-    fn guests_add_their_sessions_and_take_them_away() {
+    fn guests_add_their_sessions_and_revocation_takes_them_away() {
         let store = Store::new("home".into(), None);
-        let (first, name) = store.guest_join("cloud").unwrap();
+        let (first, name) = store.guest_join("cloud", "m1").unwrap();
         assert_eq!(name, "cloud");
-        let (second, name) = store.guest_join("cloud").unwrap();
+        let (second, name) = store.guest_join("cloud", "m2").unwrap();
         assert_eq!(name, "cloud 2");
         assert_eq!(store.guests_count("cloud"), 2);
 
@@ -354,15 +366,90 @@ mod tests {
         // Ce que l'invitée renverrait à son tour : rien de ce qui vient d'ailleurs
         assert!(own_sessions(&shown).is_empty());
 
-        // Le nom libéré est repris par la suivante
-        store.guest_leave(first);
-        assert_eq!(store.snapshot().sessions.len(), 1);
-        assert_eq!(store.guest_join("cloud").unwrap().1, "cloud");
-
         // Révocation : tout le monde sort, et une invitée sortie ne peut plus rien envoyer
         store.guests_revoke("cloud");
         assert!(store.snapshot().sessions.is_empty());
         assert!(!store.guest_admitted(second));
         assert!(!store.guest_update(second, vec![session("b")]));
+    }
+
+    #[test]
+    fn a_guest_that_left_keeps_its_last_known_sessions_for_a_day() {
+        let store = Store::new("home".into(), None);
+        let (id, _) = store.guest_join("cloud", "m1").unwrap();
+        let mut done = trusted(session("done"), "cloud");
+        done.state = Some(State::Completed);
+        let mut busy = trusted(session("busy"), "cloud");
+        busy.tool = Some("Bash".into());
+        busy.background_tasks = 2;
+        assert!(store.guest_update(id, vec![done, busy]));
+
+        assert_eq!(store.guest_leave(id, 1000), Some(2));
+        assert_eq!(store.guests_count("cloud"), 0);
+        let shown = store.snapshot().sessions;
+        assert_eq!(shown.len(), 2);
+        // Ce qui était fini le reste ; ce qui travaillait n'a plus d'état connu
+        assert_eq!(shown[0].state, Some(State::Completed));
+        assert_eq!((shown[1].state, shown[1].tool.clone()), (None, None));
+        assert_eq!(shown[1].background_tasks, 0);
+        // L'entrée gardée existe toujours
+        assert!(store.guest_admitted(id));
+
+        // Une autre machine prend le nom suivant : « cloud » reste à celle qui est partie
+        let (other, name) = store.guest_join("cloud", "m2").unwrap();
+        assert_eq!(name, "cloud 2");
+        // Elle montre la même session, à jour : la sienne l'emporte sur l'image gardée
+        let mut fresh = trusted(session("done"), "cloud 2");
+        fresh.state = Some(State::InputRequired);
+        assert!(store.guest_update(other, vec![fresh]));
+        let shown = store.snapshot().sessions;
+        assert_eq!(shown.len(), 2);
+        let kept = shown.iter().find(|s| s.id == "done").unwrap();
+        assert_eq!(kept.host.as_deref(), Some("cloud 2"));
+        assert_eq!(kept.state, Some(State::InputRequired));
+
+        // La machine revient : même nom, sessions gardées jusqu'à son premier envoi
+        let (back, name) = store.guest_join("cloud", "m1").unwrap();
+        assert_eq!(name, "cloud");
+        assert!(!store.guest_admitted(id));
+        assert_eq!(store.guests_count("cloud"), 2);
+        assert_eq!(store.snapshot().sessions.len(), 2);
+        assert!(store.guest_update(back, Vec::new()));
+        assert_eq!(store.snapshot().sessions.len(), 1);
+
+        // Partie sans session : rien à garder. Partie avec : oubliée après un jour
+        assert_eq!(store.guest_leave(back, 2000), Some(0));
+        assert_eq!(store.guest_leave(other, 2000), Some(1));
+        assert_eq!(store.guest_leave(id, 2000), None);
+        assert_eq!(store.snapshot().sessions.len(), 1);
+        store.guests_expire(2000 + 24 * 3600 - 1);
+        assert_eq!(store.snapshot().sessions.len(), 1);
+        store.guests_expire(2000 + 24 * 3600);
+        assert!(store.snapshot().sessions.is_empty());
+        assert_eq!(store.guest_join("cloud", "m3").unwrap().1, "cloud");
+    }
+
+    #[test]
+    fn a_full_invitation_drops_the_guest_that_left_first() {
+        let store = Store::new("home".into(), None);
+        let ids: Vec<u64> = (0..20)
+            .map(|n| store.guest_join("cloud", &format!("m{n}")).unwrap().0)
+            .collect();
+        // Toutes connectées : pas de place
+        assert!(store.guest_join("cloud", "extra").is_none());
+        for (n, id) in ids.iter().enumerate().take(2) {
+            assert!(store.guest_update(*id, vec![trusted(session(&format!("s{n}")), "x")]));
+            assert_eq!(store.guest_leave(*id, 100 + n as u64), Some(1));
+        }
+        assert_eq!(store.snapshot().sessions.len(), 2);
+        let (_, name) = store.guest_join("cloud", "extra").unwrap();
+        assert_eq!(name, "cloud");
+        let left: Vec<_> = store
+            .snapshot()
+            .sessions
+            .into_iter()
+            .map(|s| s.id)
+            .collect();
+        assert_eq!(left, ["s1"]);
     }
 }

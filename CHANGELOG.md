@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Guest machines: when a guest leaves, its last known sessions stay on screens for 24 hours instead of vanishing. A hosted environment is paused as soon as its session is idle, which is exactly when "finished" or "waiting for an answer" must stay visible. A session that was working when the guest left has no state any more (`state: null`), since nobody can tell how its turn ended. A guest that comes back takes its name and its place again.
+- The receiving machine logs how many sessions each guest sends.
+- README: the invitation must be quoted where the environment is written in `.env` format (it contains a `#`).
+
 ## 0.2.0
 
 - Guest machines: a machine rebuilt for each use (hosted session, container, CI job) sends its sessions to a machine that is always on, which shows them on its own screens with a new `host` field. `tallylight invite <name>`, `tallylight invites`, `tallylight revoke <name>` on the receiving machine; `TALLYLIGHT_FORWARD` or `daemon --forward` on the guest. New ALPN `tallylight/forward/1`.
