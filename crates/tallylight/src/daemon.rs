@@ -182,6 +182,7 @@ pub async fn run(port: u16, relays: Relays, forward: Option<Target>) -> Result<(
                 tick.tick().await;
                 let local = claude_local::read_with_models(&mut models);
                 app.store.reconcile(&local, now());
+                app.store.guests_expire(now());
             }
         }
     };

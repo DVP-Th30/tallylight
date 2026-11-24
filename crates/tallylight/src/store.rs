@@ -61,22 +61,32 @@ struct Inner {
     sessions: BTreeMap<String, Session>,
     /// Date du dernier événement reçu de chaque session, qu'il ait changé l'état ou non.
     last_event: HashMap<String, u64>,
-    /// Machines invitées connectées en ce moment, par numéro de connexion.
+    /// Machines invitées, connectées ou parties depuis peu, par numéro de connexion.
     guests: BTreeMap<u64, Guest>,
     next_guest: u64,
 }
 
-/// Une machine invitée connectée : ses sessions s'ajoutent à celles de la machine (D21).
+/// Une machine invitée : ses sessions s'ajoutent à celles de la machine (D21). Partie, elle reste
+/// le temps de [`GUEST_KEPT`] avec ses dernières sessions connues (D22).
 struct Guest {
     /// Invitation qui l'a fait entrer.
     invite: String,
+    /// Identité réseau de la machine : celle qui revient reprend sa place et son nom.
+    machine: String,
+    /// Date de son départ ; `None` tant qu'elle est connectée.
+    left_at: Option<u64>,
     /// Nom sous lequel ses sessions sont diffusées, imposé par la machine d'accueil.
     host: String,
     sessions: Vec<Session>,
 }
 
-/// Machines invitées connectées en même temps par invitation.
+/// Machines invitées par invitation, connectées ou gardées après leur départ.
 const GUESTS_PER_INVITE: usize = 20;
+
+/// Durée pendant laquelle les dernières sessions connues d'une invitée partie restent affichées.
+/// Une machine hébergée est mise en pause dès que sa session est au repos : c'est justement là
+/// que l'état « fini » ou « attend une réponse » doit rester visible.
+const GUEST_KEPT: u64 = 24 * 3600;
 
 impl Store {
     /// `path` : fichier des sessions conservées ; elles sont relues au démarrage.
@@ -257,9 +267,18 @@ impl Store {
         let mut sessions: Vec<Session> = inner.sessions.values().cloned().collect();
         let mut seen: std::collections::HashSet<&str> =
             inner.sessions.keys().map(String::as_str).collect();
-        for guest in inner.guests.values() {
+        // Un identifiant ne paraît qu'une fois : celui de la machine l'emporte, puis celui d'une
+        // invitée connectée sur celui d'une invitée partie
+        let connected = inner
+            .guests
+            .values()
+            .filter(|guest| guest.left_at.is_none());
+        let gone = inner
+            .guests
+            .values()
+            .filter(|guest| guest.left_at.is_some());
+        for guest in connected.chain(gone) {
             for session in &guest.sessions {
-                // Un identifiant ne paraît qu'une fois : celui de la machine l'emporte
                 if seen.insert(&session.id) {
                     sessions.push(session.clone());
                 }
@@ -274,40 +293,73 @@ impl Store {
         });
     }
 
-    /// Fait entrer une machine invitée par l'invitation `invite`. Retourne son numéro et le nom
-    /// sous lequel ses sessions seront diffusées : celui de l'invitation, numéroté s'il est déjà
-    /// pris (« cloud », « cloud 2 »). `None` : trop d'invitées à la fois pour cette invitation.
-    pub fn guest_join(&self, invite: &str) -> Option<(u64, String)> {
+    /// Fait entrer la machine invitée `machine` (son identité réseau) par l'invitation `invite`.
+    /// Retourne son numéro et le nom sous lequel ses sessions seront diffusées : celui de
+    /// l'invitation, numéroté s'il est déjà pris (« cloud », « cloud 2 »). Une machine qui revient
+    /// reprend son nom, et ses dernières sessions restent affichées jusqu'à son premier envoi.
+    /// `None` : trop d'invitées connectées à la fois pour cette invitation.
+    pub fn guest_join(&self, invite: &str, machine: &str) -> Option<(u64, String)> {
         let mut inner = self.inner.lock().unwrap();
-        let taken: Vec<&str> = inner
+        // La même machine, partie ou dont l'ancienne connexion n'a pas encore été constatée morte
+        let previous = inner
             .guests
-            .values()
-            .filter(|guest| guest.invite == invite)
-            .map(|guest| guest.host.as_str())
-            .collect();
-        if taken.len() >= GUESTS_PER_INVITE {
-            return None;
-        }
-        let host = (1..)
-            .map(|n| match n {
-                1 => invite.to_string(),
-                n => format!("{invite} {n}"),
-            })
-            .find(|name| !taken.contains(&name.as_str()))?;
+            .iter()
+            .find(|(_, guest)| guest.invite == invite && guest.machine == machine)
+            .map(|(id, _)| *id)
+            .and_then(|id| inner.guests.remove(&id));
+        let (host, sessions) = match previous {
+            Some(guest) => (guest.host, guest.sessions),
+            None => {
+                let of_invite = |inner: &Inner| {
+                    inner
+                        .guests
+                        .values()
+                        .filter(|guest| guest.invite == invite)
+                        .count()
+                };
+                // Plus de place : la partie la plus ancienne cède la sienne
+                while of_invite(&inner) >= GUESTS_PER_INVITE {
+                    let oldest = inner
+                        .guests
+                        .iter()
+                        .filter(|(_, guest)| guest.invite == invite)
+                        .filter_map(|(id, guest)| Some((guest.left_at?, *id)))
+                        .min()?;
+                    inner.guests.remove(&oldest.1);
+                }
+                let taken: Vec<&str> = inner
+                    .guests
+                    .values()
+                    .filter(|guest| guest.invite == invite)
+                    .map(|guest| guest.host.as_str())
+                    .collect();
+                let host = (1..)
+                    .map(|n| match n {
+                        1 => invite.to_string(),
+                        n => format!("{invite} {n}"),
+                    })
+                    .find(|name| !taken.contains(&name.as_str()))?;
+                (host, Vec::new())
+            }
+        };
         let id = inner.next_guest;
         inner.next_guest += 1;
         inner.guests.insert(
             id,
             Guest {
                 invite: invite.to_string(),
+                machine: machine.to_string(),
+                left_at: None,
                 host: host.clone(),
-                sessions: Vec::new(),
+                sessions,
             },
         );
+        self.broadcast(&inner);
         Some((id, host))
     }
 
-    /// Remplace les sessions d'une invitée ; `false` si elle n'est plus admise (invitation révoquée).
+    /// Remplace les sessions d'une invitée ; `false` si elle n'est plus admise (invitation
+    /// révoquée, ou place reprise par une nouvelle connexion de la même machine).
     pub fn guest_update(&self, id: u64, sessions: Vec<Session>) -> bool {
         let mut inner = self.inner.lock().unwrap();
         let Some(guest) = inner.guests.get_mut(&id) else {
@@ -323,15 +375,47 @@ impl Store {
         self.inner.lock().unwrap().guests.contains_key(&id)
     }
 
-    /// L'invitée est partie : ses sessions disparaissent des écrans.
-    pub fn guest_leave(&self, id: u64) {
+    /// L'invitée est partie : ses dernières sessions connues restent affichées (D22). Ce qu'on ne
+    /// peut plus affirmer est retiré : une session « au travail » n'a plus d'état connu, la
+    /// machine ayant pu s'arrêter en plein tour.
+    /// Retourne le nombre de sessions gardées ; `None` si elle n'était plus admise.
+    pub fn guest_leave(&self, id: u64, now: u64) -> Option<usize> {
         let mut inner = self.inner.lock().unwrap();
-        if inner.guests.remove(&id).is_some() {
+        let guest = inner.guests.get_mut(&id)?;
+        if guest.sessions.is_empty() {
+            inner.guests.remove(&id);
+            return Some(0);
+        }
+        let kept = guest.sessions.len();
+        guest.left_at = Some(now);
+        for session in &mut guest.sessions {
+            if session.state == Some(State::Working) {
+                session.state = None;
+                session.tool = None;
+                session.detail = None;
+            }
+            session.background_tasks = 0;
+        }
+        self.broadcast(&inner);
+        Some(kept)
+    }
+
+    /// Oublie les invitées parties depuis plus de [`GUEST_KEPT`].
+    pub fn guests_expire(&self, now: u64) {
+        let mut inner = self.inner.lock().unwrap();
+        let before = inner.guests.len();
+        inner.guests.retain(|_, guest| {
+            guest
+                .left_at
+                .is_none_or(|left| now.saturating_sub(left) < GUEST_KEPT)
+        });
+        if inner.guests.len() != before {
             self.broadcast(&inner);
         }
     }
 
-    /// Invitation révoquée : ses invitées sortent ; leur connexion le constate et se ferme.
+    /// Invitation révoquée : ses invitées sortent, celles déjà parties sont oubliées ; les
+    /// connexions en cours le constatent et se ferment.
     pub fn guests_revoke(&self, invite: &str) {
         let mut inner = self.inner.lock().unwrap();
         inner.guests.retain(|_, guest| guest.invite != invite);
@@ -344,7 +428,7 @@ impl Store {
         inner
             .guests
             .values()
-            .filter(|guest| guest.invite == invite)
+            .filter(|guest| guest.invite == invite && guest.left_at.is_none())
             .count()
     }
 

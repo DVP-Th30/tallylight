@@ -32,9 +32,10 @@ tallylight pair
 A machine rebuilt for each use cannot stay paired with screens. Make it a guest of a machine that is always on:
 
 - On the always-on machine: `tallylight invite cloud` prints an invitation (a secret, no expiry, several machines at once; `tallylight revoke cloud` cancels it).
-- In the short-lived environment: set `TALLYLIGHT_FORWARD` to the invitation, and run the installer then `tallylight install --ephemeral` in its setup script. `--ephemeral` adds a Claude Code `SessionStart` hook that runs `tallylight start` (starts the daemon unless it runs), because there is no service manager.
+- In the short-lived environment: set `TALLYLIGHT_FORWARD` to the invitation (quote the value where the format is `.env`: it contains a `#`), and run the installer then `tallylight install --ephemeral` in its setup script. `--ephemeral` adds a Claude Code `SessionStart` hook that runs `tallylight start` (starts the daemon unless it runs), because there is no service manager.
 - Claude Code on the web: fetch the installer from `https://raw.githubusercontent.com/DVP-Th30/tallylight/main/site/install.sh` (GitHub is allowed by default, the project site is not) and add `*.iroh.link` to the allowed domains.
 - The guest's sessions arrive in the always-on machine's snapshot with `host` set (`cloud`, `cloud 2`…). Screens need no new pairing.
+- When a guest stops or is paused, its last sessions stay for 24 hours (since 0.2.1); one that was `working` then has `state: null`.
 
 Status, to tell the user: checked between two daemons on one machine with a real Claude Code session; not yet tried with the invitation in a real hosted session.
 

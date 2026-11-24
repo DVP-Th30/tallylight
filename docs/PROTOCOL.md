@@ -90,10 +90,12 @@ Since 0.2.0. A machine that is rebuilt for each use (a hosted agent session, a c
 
 1. The guest opens a QUIC connection to the receiving machine with ALPN `tallylight/forward/1`, then one bidirectional stream.
 2. The guest sends one line: `{"name": "vm", "invite": "inv…"}`.
-3. The receiving machine answers `{"ok": true}`, or `{"ok": false}` and closes (unknown or revoked invitation, or more than 20 machines connected through it).
+3. The receiving machine answers `{"ok": true}`, or `{"ok": false}` and closes (unknown or revoked invitation, or 20 machines already connected through it).
 4. The guest sends one `Snapshot` line immediately, then one per change. Nothing else comes back.
 
-The receiving machine does not trust a guest: it sets `host` itself (the invitation's name, then `name 2`, `name 3`… for machines connected at the same time), keeps at most 50 sessions per guest, shortens every text, drops control characters, keeps a `url` only if it starts with `https://`, and ignores a session whose `id` it already shows. A line longer than 256 KiB closes the connection. When the connection ends, the guest's sessions leave the snapshot.
+The receiving machine does not trust a guest: it sets `host` itself (the invitation's name, then `name 2`, `name 3`… when the name is taken), keeps at most 50 sessions per guest, shortens every text, drops control characters, keeps a `url` only if it starts with `https://`, and ignores a session whose `id` it already shows. A line longer than 256 KiB closes the connection.
+
+When the connection ends, the guest's last sessions stay in the snapshot for 24 hours (since 0.2.1; they left at once in 0.2.0): a hosted environment is paused as soon as its session is idle. What can no longer be claimed is removed: a session that was `working` gets `state: null`, no `tool`, no `detail`, and `background_tasks` is 0. A guest that connects again (same network identity) takes back its `host` name, and its first snapshot replaces the kept sessions. Kept sessions are not written to disk: they are lost when the receiving machine's daemon restarts.
 
 A guest only sends its own sessions, never those it receives from its own guests.
 

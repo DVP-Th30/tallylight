@@ -196,13 +196,26 @@ Décision : deux rôles. La **machine d'accueil** (toujours allumée, déjà app
 - L'invitation est « ticket#secret », le secret commençant par `inv` (une chaîne d'appairage donnée par erreur est reconnue et refusée avec un message clair). Elle n'expire pas et sert à plusieurs machines : la variable d'un environnement en ligne ne se modifie pas à chaque session. Elle se révoque (`tallylight revoke`), ce qui ferme les connexions en cours (constaté en 5 s au plus).
 - Ce que permet une invitation : faire afficher des sessions. La machine d'accueil ne renvoie rien à une invitée. L'agent de l'environnement peut lire la variable : le pire cas d'une fuite est l'affichage de fausses sessions, jusqu'à révocation.
 - Une invitée n'est pas de confiance (`guests::trusted`) : `host` imposé (nom de l'invitation, numéroté pour les machines simultanées), 50 sessions et 20 machines par invitation au plus, textes bornés et sans caractère de contrôle, lien gardé seulement s'il est en `https://`, identifiant déjà affiché ignoré, ligne de 256 Kio au plus, 100 ms au moins entre deux instantanés.
-- Les sessions invitées ne sont pas enregistrées sur disque et disparaissent à la fin de la connexion (30 s environ après la mort brutale de l'invitée, délai d'inactivité de QUIC).
+- Les sessions invitées ne sont pas enregistrées sur disque. La fin de la connexion est constatée 30 s environ après la mort brutale de l'invitée (délai d'inactivité de QUIC) ; ce qu'il advient alors des sessions : voir D22 (en 0.2.0 elles disparaissaient aussitôt).
 - Les sessions s'ajoutent à l'instantané de la machine d'accueil plutôt que d'arriver comme une machine à part : un écran existant les affiche sans modification, dans la section de la machine d'accueil.
 - Machine sans gestionnaire de services : `tallylight install --ephemeral` ajoute un hook `SessionStart` de type commande qui lance `tallylight start` (démon en arrière-plan s'il ne répond pas, journal dans `daemon.log` du dossier de données). `start` ne dit rien : la sortie d'un hook `SessionStart` est versée dans le contexte de l'agent.
 - Session hébergée de Claude Code : le lien `url` vient de `CLAUDE_CODE_REMOTE_SESSION_ID` quand `CLAUDE_CODE_REMOTE` vaut `true` (documentation lue le 2026-11-23).
 - Service hébergé futur : il pourra tenir le rôle de machine d'accueil pour ceux qui n'ont pas de machine allumée. La machine d'accueil lit aujourd'hui ce qu'elle rediffuse ; un service tiers devra ne transporter que du contenu chiffré pour les écrans. Rien n'est codé pour cela.
 
 Vérifié le 2026-11-23 sur le Mac, deux démons d'essai (ports 47796 et 47797) : invitation, connexion, session rediffusée avec `host`, révocation ; puis une vraie session Claude Code dont le hook `SessionStart` lance le démon invité, états `working` puis `completed` vus sur la machine d'accueil, disparition après l'arrêt de l'invitée. Non vérifié : une vraie session hébergée avec l'invitation (script de démarrage, variable d'environnement vue par le hook, proxy) ; Windows comme machine invitée (`start` n'y existe pas).
+
+## D22 — Une invitée partie laisse sa dernière image pendant 24 h (2026-11-24)
+Constat, premier essai réel d'une session hébergée de Claude Code avec une invitation (2026-11-24) : toute la chaîne fonctionne (script de démarrage, variable `TALLYLIGHT_FORWARD` entre guillemets car elle contient un `#`, liste de confiance avec `*.iroh.link`, proxy, hook `SessionStart` qui relance le démon à la reprise), mais l'hébergeur met la machine en pause environ 10 minutes après la fin du travail. Le démon s'arrête avec elle, et la session disparaissait de l'écran au moment précis où « fini » est l'information utile.
+
+Décision : au départ d'une invitée, ses dernières sessions connues restent dans l'instantané de la machine d'accueil pendant 24 h (`GUEST_KEPT`).
+- Ce qu'on ne peut plus affirmer est retiré : une session « au travail » passe à `state: null` (outil et détail effacés), `background_tasks` à 0. `canceled` a été écarté : une simple coupure réseau ferait afficher « interrompu » à tort ; « état inconnu » est vrai dans tous les cas.
+- Une machine qui revient (même identité réseau, gardée sur le disque de l'environnement) reprend son nom et sa place ; ses sessions gardées restent affichées jusqu'à son premier envoi, puis sont remplacées. Si son ancienne connexion n'a pas encore été constatée morte, la nouvelle la remplace.
+- Une session affichée à la fois par une invitée connectée et par une invitée partie n'apparaît qu'une fois, sous la connectée.
+- Les 20 places par invitation comptent connectées et parties ; quand il n'y a plus de place, la partie la plus ancienne cède la sienne ; le refus n'arrive que si 20 machines sont réellement connectées.
+- Écarté : ne garder que « fini » et « attend une réponse ». Une session coupée en plein travail disparaîtrait sans explication.
+- Écarté : un champ supplémentaire « machine partie ». `updated_at` dit déjà de quand date l'état ; à revoir si un écran en a besoin.
+- Limites : une session abandonnée reste jusqu'à 24 h ; l'image gardée n'est pas enregistrée sur disque et se perd au redémarrage du démon d'accueil ; `tallylight revoke` l'efface aussitôt.
+- Le titre donné à la session par le site n'est pas accessible depuis la machine : un écran affiche le nom du dossier (`user` sans dépôt, le nom du dépôt sinon).
 
 ## Questions ouvertes
 - Codex : obtenir `failed` (voir D17, piste `PostModelRequest`) et savoir qu'un processus Codex est mort sans événement de fin.

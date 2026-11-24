@@ -193,14 +193,14 @@ On the machine that is always on:
 tallylight invite cloud
 ```
 
-It prints an invitation. In the short-lived environment, set it as `TALLYLIGHT_FORWARD` and install with `--ephemeral`, which adds a hook that starts the daemon with each Claude Code session (there is no service manager to do it). For Claude Code on the web, that is one environment variable, `*.iroh.link` in the allowed domains, and this setup script:
+It prints an invitation. In the short-lived environment, set it as `TALLYLIGHT_FORWARD` and install with `--ephemeral`, which adds a hook that starts the daemon with each Claude Code session (there is no service manager to do it). For Claude Code on the web, that is one environment variable (written `TALLYLIGHT_FORWARD="<invitation>"`: the quotes are required there, because the invitation contains a `#`), `*.iroh.link` in the allowed domains, and this setup script:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/DVP-Th30/tallylight/main/site/install.sh | sh
 ~/.local/bin/tallylight install --ephemeral
 ```
 
-The sessions appear under the invitation's name (`cloud`, then `cloud 2` when several run at once) and disappear when the environment stops. `tallylight invites` lists the invitations, `tallylight revoke cloud` cancels one.
+The sessions appear under the invitation's name (`cloud`, then `cloud 2` when several run at once) and stay for a day after the environment stops or is paused, with their last known state (a session that was still working then shows no state, since nobody can tell how it ended). `tallylight invites` lists the invitations, `tallylight revoke cloud` cancels one.
 
 What to know:
 
